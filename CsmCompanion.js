@@ -1,6 +1,6 @@
 // ==UserScript==
-// @name     ServiceNow Pulse Companion
-// @version  1.0
+// @name     CSM Companion
+// @version  1.4.1
 // @grant    none
 // @match    *://itsm.services.sap/*
 // @include  *://itsm.services.sap/*
@@ -11,17 +11,6 @@
  * For example cases you can check Guided Engineering backend:
  * https://supportportaltest-ge-approuter.internal.cfapps.sap.hana.ondemand.com/ahui/#/SupportCase
  */
-let ipcRenderer = null;
-if (typeof require !== "undefined") {
-  ipcRenderer = require("electron").ipcRenderer;
-} else {
-  ipcRenderer = {
-    invoke: ise.events.send,
-    on: ise.events.on,
-    off: ise.events.off,
-  };
-}
-
 const forceEnv = null;
 
 // Exposed functions
@@ -96,7 +85,7 @@ async function getTemplates() {
     if (higherVersion(iseVersion, minVersion) === minVersion) {
       return [];
     }
-    const res = await ipcRenderer.invoke("engine-case-get-templates");
+    const res = await ise.events.send("engine-case-get-templates");
     if (!res?.length) {
       return null;
     }
@@ -118,7 +107,7 @@ async function getTemplates() {
 }
 
 async function openQuickView(url) {
-  ipcRenderer.invoke("browserwindow-isewindow-popupwindow-open", url);
+  ise.events.send("browserwindow-isewindow-popupwindow-open", url);
 }
 
 /**
@@ -223,7 +212,7 @@ async function executeAutomation(automation_id, correlation_id, component, runti
  * Sends analytics to HANA
  */
 async function sendAnalytics(action, metadata = undefined) {
-  ipcRenderer.invoke("engine-logger-track-hana", {
+  ise.events.send("engine-logger-track-hana", {
     view: "case_assistant",
     action,
     metadata,
@@ -236,13 +225,13 @@ async function sendAnalytics(action, metadata = undefined) {
 let caToken = null;
 async function caRequest(path, method = "GET", body = undefined) {
   if (!caToken) {
-    const tokenRes = await ipcRenderer.invoke("engine-sso-request", {
+    const tokenRes = await ise.events.send("engine-sso-request", {
       env: forceEnv || undefined,
       service: "supportportal_token",
     });
     caToken = tokenRes?.token;
   }
-  const res = await ipcRenderer.invoke("engine-request", {
+  const res = await ise.events.send("engine-request", {
     service: "backend-case-assistant",
     method,
     env: forceEnv || undefined,
@@ -262,13 +251,13 @@ async function caRequest(path, method = "GET", body = undefined) {
 async function iaRequest(path, method = "GET", body = undefined) {
   document.querySelector(".spinner").style.display = "block";
 
-  const tokenRes = await ipcRenderer.invoke("engine-sso-request", {
+  const tokenRes = await ise.events.send("engine-sso-request", {
     env: forceEnv || undefined,
     service: "guided-engineering-token",
   });
   let iaToken = tokenRes?.token;
 
-  const res = await ipcRenderer.invoke("engine-request", {
+  const res = await ise.events.send("engine-request", {
     service: "backend-guided-engineering",
     method,
     env: forceEnv || undefined,
@@ -284,8 +273,8 @@ async function iaRequest(path, method = "GET", body = undefined) {
 
 /*****************************************************************************************************/
 
-var defaultLeftPosition = "2.6%";
-var defaultTopPosition = "60%";
+var defaultLeftPosition = "3%";
+var defaultTopPosition = "52%";
 var pulseCheckerDiv = document.createElement("div");
 pulseCheckerDiv.setAttribute("id","checkerDiv");
 document.body.appendChild(pulseCheckerDiv);
@@ -296,11 +285,12 @@ var kcsCategorizationComplete = false;
 var csmInsights = [];
 var isKbaAttached = false;
 var isCompactVersionActive = false;
+var scriptReceivedCaseData;
 
 //Set CSM Insight add function
 function pushCsmInsight(insight){
   if(csmInsights.length==0){
-    csmInsights.push(insight);
+    csmInsights.push("• "+insight);
   }else{
     var insightExists = false;
     for(var i=0;i<csmInsights.length;i++){
@@ -310,13 +300,17 @@ function pushCsmInsight(insight){
       }
     }
     if(!insightExists){
-      csmInsights.push(insight);
+      csmInsights.push("• "+insight);
     }
   }
 }
 
 //Set draggable box
 var container = document.getElementById("checkerDiv");
+var initialMousePosition = [];
+var bounds;
+var relativeMouseX;
+var relativeMouseY; 
 
 function handleMouseMove(event){
   event.preventDefault();
@@ -325,26 +319,42 @@ function handleMouseMove(event){
 
 function onMouseDrag(movementX, movementY){
   var containerStyle = window.getComputedStyle(container);
-  var leftPosition = parseInt(containerStyle.left);
+  var lefPosition = parseInt(containerStyle.left);
   var topPosition = parseInt(containerStyle.top);
   container.style.position = "absolute";
-  container.style.left = movementX+"px";
-  container.style.top = movementY+"px";
-  defaultLeftPosition = movementX+"px";
-  defaultTopPosition = movementY+"px";
+  container.style.left = (movementX-relativeMouseX)+"px";
+  container.style.top = (movementY-relativeMouseY)+"px";
+  defaultLeftPosition = (movementX-relativeMouseX)+"px";
+  defaultTopPosition = (movementY-relativeMouseY)+"px";
 }
 
 container.addEventListener("mousedown", (e)=>{
-  if(e.target.id != "insights" && e.target.id != "insightsText"){
-    document.addEventListener("mousemove", handleMouseMove);
-  }else{
-    e.preventDefault();
+  if(e.target.id == "insights" || e.target.id == "insightsText"){
     if(csmInsights.length>0){
-      alert(csmInsights.join("<br><br>"));
+      alert("CSM Insights (Beta)<br><br>"+csmInsights.join("<br><br>"));
     }else{
       alert("No CSM Insights :)");
     }
+  }else if(e.target.id == "toggleCompact"){
+    isCompactVersionActive = !isCompactVersionActive;
+    setScriptUI(scriptReceivedCaseData);
+    //adjust position when toggling back to full mode
+    /*setTimeout(() => {
+      if(!isCompactVersionActive){
+        var containerStyle = window.getComputedStyle(container);
+        container.style.position = "absolute";
+        container.style.top = ((container.style.top.split("p")[0])-360)+"px";
+        //TODO: if position + 360 > screen height, set position to screen height - 400
+      }
+    }, 1100);*/
+    
+  }else{
+    bounds = container.getBoundingClientRect();
+    relativeMouseX = e.clientX - bounds.left;
+    relativeMouseY = e.clientY - bounds.top;
+    document.addEventListener("mousemove", handleMouseMove);
   }
+  
 });
 
 document.addEventListener("mouseup",()=>{
@@ -354,375 +364,489 @@ document.addEventListener("mouseup",()=>{
 //Setting content when case is opened
 ise.case.onUpdate2(
     async (receivedCaseData) => {
-        //clear any previous data
-        csmInsights = [];
-        
-        //when a case is open, query the Pulse data
-        pulseData = API.Pulse.get(receivedCaseData.id).then((pulse)=>{
-
-        //Clear any previous data
-        //Hide if no case is open
-        if(receivedCaseData.types[0] == "nocase"){
-          pulseCheckerDiv.setAttribute("style","display:none;")
-        }else if(!isCompactVersionActive){
-          //Full version
-          pulseCheckerDiv.innerHTML = "<div style=\"text-align: center; color: white;\"><h2 style=\"margin-top:4%; margin-bottom:0%;\">CSM Companion</h2><h4 style=\"margin-bottom:4%; margin-top:0%;\">"+receivedCaseData.headers.data.number+"</h4><h3 style=\"margin-bottom:0%;\">Pulse Completion</h3></div>";
-          pulseCheckerDiv.setAttribute("style","display:block; position:absolute; z-index:99 ;top:"+defaultTopPosition+"; left:"+defaultLeftPosition+"; width:250px; height:360px; background-color:rgba(0, 0, 0, 0.65); border-radius:25px;");
-          pulseCheckerDiv.setAttribute("id","checkerDiv");
+      if(receivedCaseData.types[0] != "newcase"){
+        if(receivedCaseData.types[0] == "knowledgematches"){
+          //TODO: kba suggestion insights
         }else{
-          //Compact version
-          pulseCheckerDiv.innerHTML = "<div style=\"display:inline-block; vertical-align: baseline; color: white;\"><h3 style=\"display:inline-block; margin-top:8%; margin-bottom:4%; margin-left:8%;\">CSM Companion</h3></div>";
-          pulseCheckerDiv.setAttribute("style","display:block; position:absolute; z-index:99 ;top:"+defaultTopPosition+"; left:"+defaultLeftPosition+"; width:300px; height:60px; background-color:rgba(0, 0, 0, 0.65); border-radius:10px;");
-          pulseCheckerDiv.setAttribute("id","checkerDiv");
-        }
-
-        //If categorization is "service request", pulse is not required
-
-        if(receivedCaseData.headers.data.resolutionError.category == "service_request"){
-          kcsCategorizeComplete = true;
-          kcsInvestigateComplete = true;
-          if(!isCompactVersionActive){
-            //Full version
-            var serviceRequestDiv = document.createElement("h4");
-            serviceRequestDiv.setAttribute("style","text-align: center; color: PaleGreen; margin: 1%;");
-            serviceRequestDiv.innerHTML = "Pulse Not Required (<abbr title=\"For Service Request cases, Pulse is not mandatory\"> ? </abbr>)";
-            pulseCheckerDiv.appendChild(serviceRequestDiv);
-          }else{
-            //Compact version
-            var serviceRequestDiv = document.createElement("div");
-            serviceRequestDiv.setAttribute("style","display:inline-block; background-color: PaleGreen; line-height:38px; vertical-align:-3px; width:25px; height:25px; border-radius:13px;");
-            serviceRequestDiv.setAttribute("title","For Service Request cases, Pulse is not mandatory");
-            serviceRequestDiv.innerHTML="<h3 style=\"text-align:center; vertical-align:top; color:white;\" title=\"Pulse Status\">P</h3>";
-            pulseCheckerDiv.appendChild(serviceRequestDiv);
-          }
-
-          //CSM PULSE INSIGHTS
-          //Service Request Pulse Completion
-          pushCsmInsight("• Pulse completion is still suggested for Service Request Cases");
-
-        }else{
-
-          //CSM PULSE INSIGHTS
-          //Pulse last update
-          var updateDate = new Date(pulse.sys_updated_on+" UTC");
-          var currentDate = new Date();
-          //Calculate difference in ms then convert to hours   
-          var updateTimeDifference = Math.abs(((updateDate.getTime() - currentDate.getTime())/(1000*60*60))); 
-          if(updateTimeDifference >= 48){
-            pushCsmInsight("• Pulse has not been updated in the last 48 hours. Check if the existing pulse can be improved with new info.");
-          }
-          //Pulse update user (disconsider when pulse change comes from Case Assistant)
-          if(receivedCaseData.headers.data.processor != pulse.sys_updated_by && pulse.sys_updated_by!= "INT_ISE2SN"){
-            pushCsmInsight("• Pulse was last updated by a different user. Check if the existing pulse can be improved with new info.");
-          }
-          //Check Pulse mandatory fields
-          verifyCategorizeSection(pulse);
-          verifyInvestigateSection(pulse);
-          if(!kcsCategorizeComplete || !kcsInvestigateComplete){
-            pushCsmInsight("• For Pulse completion, it is mandatory to complete at least the Symptom and either Data Collected, Research or Research (Internal)");
-          }
-
-          if(!isCompactVersionActive){
-            //Full Version
-            //verify and list each section of pulse
-            //Categorization
-            var categorizeDiv = document.createElement("h4");
-            categorizeDiv.setAttribute("style","text-align: center; color: white; margin: 1%;");
-            try{
-              categorizeDiv.innerHTML = "Categorize: "+verifyCategorizeSection(pulse)+"/5"+((!kcsCategorizeComplete)?" (<abbr style=\"text-decoration: none\" title=\"For KCS adoption, Symptom is mandatory\"> ⚠ </abbr>)":"");
-              if(verifyCategorizeSection(pulse)==5){
-                categorizeDiv.setAttribute("style","text-align: center; color: PaleGreen; margin: 1%;");
-              }else if(verifyCategorizeSection(pulse)>0){
-                categorizeDiv.setAttribute("style","text-align: center; color: Khaki; margin: 1%;");
-              }else{
-                categorizeDiv.setAttribute("style","text-align: center; color: LightCoral; margin: 1%;");
-              }
-            }catch(err){
-              categorizeDiv.setAttribute("style","text-align: center; color: LightCoral; margin: 1%;");
-              categorizeDiv.innerHTML = "Categorize: 0/5"+((!kcsCategorizeComplete)?" (<abbr title=\"For KCS adoption, Symptom is mandatory\"> ⚠ </abbr>)":"");
-            }
-            pulseCheckerDiv.appendChild(categorizeDiv);
-
-            //Investigate
-            var investigateDiv = document.createElement("h4");
-            investigateDiv.setAttribute("style","text-align: center; color: white; margin: 1%;");
-            try{
-              investigateDiv.innerHTML = "Investigate: "+verifyInvestigateSection(pulse)+"/3"+((!kcsInvestigateComplete)?" (<abbr style=\"text-decoration: none\" title=\"For KCS adoption, at least one field must be filled\"> ⚠ </abbr>)":"");
-              if(verifyInvestigateSection(pulse)==3){
-                investigateDiv.setAttribute("style","text-align: center; color: PaleGreen; margin: 1%;");
-              }else if(verifyInvestigateSection(pulse)>0){
-                investigateDiv.setAttribute("style","text-align: center; color: Khaki; margin: 1%;");
-              }else{
-                investigateDiv.setAttribute("style","text-align: center; color: LightCoral; margin: 1%;");
-              }
-            }catch(err){
-              investigateDiv.setAttribute("style","text-align: center; color: LightCoral; margin: 1%;");
-              investigateDiv.innerHTML = "Investigate: 0/3"+((!kcsInvestigateComplete)?" (<abbr style=\"text-decoration: none\" title=\"For KCS adoption, at least one field must be filled\"> ⚠ </abbr>)":"");
-            }
-            pulseCheckerDiv.appendChild(investigateDiv);
-
-            //Resolution
-            var resolutionDiv = document.createElement("h4");
-            resolutionDiv.setAttribute("style","text-align: center; color: white;  margin: 1%;");
-            try{
-              resolutionDiv.innerHTML = "Resolution: "+verifyResolutionSection(pulse)+"/4";
-              if(verifyResolutionSection(pulse)==4){
-                resolutionDiv.setAttribute("style","text-align: center; color: PaleGreen; margin: 1%;");
-              }else if(verifyResolutionSection(pulse)>0){
-                resolutionDiv.setAttribute("style","text-align: center; color: Khaki; margin: 1%;");
-              }else{
-                resolutionDiv.setAttribute("style","text-align: center; color: LightCoral; margin: 1%;");
-              }
-            }catch(err){
-              resolutionDiv.setAttribute("style","text-align: center; color: LightCoral; margin: 1%;");
-              resolutionDiv.innerHTML = "Resolution: 0/4";
-            }
-            pulseCheckerDiv.appendChild(resolutionDiv);
-          }else{
-            //Compact Version
-            console.log("COMPACT PULSE");
-            var pulseCompletionDiv = document.createElement("div");
-            if(verifyCategorizeSection(pulse)==5 && verifyInvestigateSection(pulse)==3 && verifyResolutionSection(pulse)>=2){
-              pulseCompletionDiv.setAttribute("style","line-height:38px; vertical-align:-3px; display:inline-block; background-color: PaleGreen; width:25px; height:25px; border-radius:13px;");
-            }else if(verifyCategorizeSection(pulse)>0 && verifyInvestigateSection(pulse)>0 && verifyResolutionSection(pulse)>0 && (kcsInvestigateComplete && kcsCategorizeComplete)){
-              pulseCompletionDiv.setAttribute("style","line-height:38px; vertical-align:-3px; display:inline-block; background-color: Khaki; width:25px; height:25px; border-radius:13px;");
-            }else{
-              pulseCompletionDiv.setAttribute("style","line-height:38px; vertical-align:-3px; display:inline-block; background-color: LightCoral; width:25px; height:25px; border-radius:13px;");
-            }
-            pulseCompletionDiv.innerHTML="<h3 style=\"text-align:center; vertical-align:top; color:white;\" title=\"Pulse Status\">P</h3>";
-            pulseCompletionDiv.setAttribute("title","Pulse Status - Categorize: "+verifyCategorizeSection(pulse)+"/5, Investigate: "+verifyInvestigateSection(pulse)+"/3, Resolution: "+verifyResolutionSection(pulse)+"/4");
-            pulseCheckerDiv.appendChild(pulseCompletionDiv);
-
-          }
-        }
-
-        //Error Categorization check
-        var errorCategorizationDiv = document.createElement("div");
-        if(!isCompactVersionActive){
-          //Full version
-          errorCategorizationDiv.setAttribute("style","text-align: center; color: white;");
-          errorCategorizationDiv.innerHTML = "<h3 style=\"margin-bottom:0%;\">Error Categorization</h3>";
-          var errorCategorizationIndicatorDiv = document.createElement("h4");
-          if(receivedCaseData.headers.data.resolutionError.subcategory == ""){
-            //check categories that do not have subcategory
-            if(receivedCaseData.headers.data.resolutionError.category == "customer_partner_issue" || receivedCaseData.headers.data.resolutionError.category == "database_inconsistency" || receivedCaseData.headers.data.resolutionError.category == "3party_partner_issue"){
-              errorCategorizationIndicatorDiv.setAttribute("style","color: PaleGreen; margin-top:0%;");
-              errorCategorizationIndicatorDiv.innerHTML = "Complete";
-              kcsCategorizationComplete = true;
-            }else{
-              errorCategorizationIndicatorDiv.setAttribute("style","color: LightCoral; margin-top:0%;");
-              errorCategorizationIndicatorDiv.innerHTML = "Incomplete";
-              kcsCategorizationComplete = false;
-            }
-          }else{
-              errorCategorizationIndicatorDiv.setAttribute("style","color: PaleGreen; margin-top:0%;");
-              errorCategorizationIndicatorDiv.innerHTML = "Complete";
-              kcsCategorizationComplete = true;
-          }
-          errorCategorizationDiv.appendChild(errorCategorizationIndicatorDiv);
-          pulseCheckerDiv.appendChild(errorCategorizationDiv);
-        }else{
-          //Compact version
-          if(receivedCaseData.headers.data.resolutionError.subcategory == ""){
-            //check categories that do not have subcategory
-            if(receivedCaseData.headers.data.resolutionError.category == "customer_partner_issue" || receivedCaseData.headers.data.resolutionError.category == "database_inconsistency" || receivedCaseData.headers.data.resolutionError.category == "3party_partner_issue"){
-              errorCategorizationDiv.setAttribute("style","margin-left:10px; line-height:38px; vertical-align:-3px; display:inline-block; background-color: PaleGreen; width:25px; height:25px; border-radius:13px;");
-              kcsCategorizationComplete = true;
-            }else{
-              errorCategorizationDiv.setAttribute("style","margin-left:10px; line-height:38px; vertical-align:-3px; display:inline-block; background-color: LightCoral; width:25px; height:25px; border-radius:13px;");
-              kcsCategorizationComplete = false;
-            }
-          }else{
-            errorCategorizationDiv.setAttribute("style","margin-left:10px; line-height:38px; vertical-align:-3px; display:inline-block; background-color: PaleGreen; width:25px; height:25px; border-radius:13px;");
-            kcsCategorizationComplete = true;
-          }
-
-          errorCategorizationDiv.innerHTML="<h3 style=\"text-align:center; vertical-align:top; color:white;\" title=\"Error Categorization\">E</h3>";
-          errorCategorizationDiv.setAttribute("title", (kcsCategorizationComplete)?"Error Categorization - Complete":"Error Categorization - Incomplete");
-          pulseCheckerDiv.appendChild(errorCategorizationDiv);
-
-        }
-
-        //PULSE INSIGHTS
-        //How-to redirect
-        if(receivedCaseData.headers.data.resolutionError.category == "customer_partner_issue" && (receivedCaseData.headers.data.resolutionError.subcategory == "how_to_request" || receivedCaseData.headers.data.resolutionError.subcategory == "consulting_implementation_request")){
-          pushCsmInsight("• Case is eligible for How-To Redirect process according to the current error categorization. Proceed with How-To redirect process.")
-        }
-
-        //Swarming Check
-        var swarmCheckDiv = document.createElement("div");
-        if(!isCompactVersionActive){
-          //Full version
-          swarmCheckDiv.setAttribute("style","text-align: center; color: white;");
-          swarmCheckDiv.innerHTML = "<h3 style=\"margin-bottom:0%;\">Swarming</h3>";
-          var swarmIndicatorDiv = document.createElement("h4");
-          //Check if swarm exists by searching in the pulse research (internal) section
-          try{
-            if(pulse.research_internal.toString().toLowerCase().indexOf("-- swarm") != -1){
-              swarmIndicatorDiv.setAttribute("style","color: PaleGreen; margin-top:0%;");
-              swarmIndicatorDiv.innerHTML = "Swarm Created";
-            }else{
-              swarmIndicatorDiv.setAttribute("style","color: Khaki; margin-top:0%;");
-              swarmIndicatorDiv.innerHTML = "No Swarm Detected";
-            }
-          }catch(err){
-            swarmIndicatorDiv.setAttribute("style","color: Khaki; margin-top:0%;");
-            swarmIndicatorDiv.innerHTML = "No Swarm Detected";
-          }
-          swarmCheckDiv.appendChild(swarmIndicatorDiv);
-          pulseCheckerDiv.appendChild(swarmCheckDiv);
-        }else{
-          //Compact version
-          try{
-            if(pulse.research_internal.toString().toLowerCase().indexOf("-- swarm") != -1){
-              swarmCheckDiv.setAttribute("style","margin-left:10px; line-height:38px; vertical-align:-3px; display:inline-block; background-color: PaleGreen; width:25px; height:25px; border-radius:13px;");
-              swarmCheckDiv.setAttribute("title", "Swarming Detected");
-            }else{
-              swarmCheckDiv.setAttribute("style","margin-left:10px; line-height:38px; vertical-align:-3px; display:inline-block; background-color: Khaki; width:25px; height:25px; border-radius:13px;");
-              swarmCheckDiv.setAttribute("title", "No Swarming Detected");
-            }
-          }catch(err){
-            swarmCheckDiv.setAttribute("style","margin-left:10px; line-height:38px; vertical-align:-3px; display:inline-block; background-color: Khaki; width:25px; height:25px; border-radius:13px;");
-            swarmCheckDiv.setAttribute("title", "No Swarming Detected");
-          }
-          swarmCheckDiv.innerHTML="<h3 style=\"text-align:center; vertical-align:top; color:white;\" title=\"Swarming\">S</h3>";
-          pulseCheckerDiv.appendChild(swarmCheckDiv);
-        }
-
-      //Check if KBA is attached by going through case memos
-      let kbaAddBalace = 0;
-      //count KBAs added and KBAs removed, then compare the numbers to check if a KBA is attached
-      for(let i=0; i<receivedCaseData.communication.data.memos.length;i++){
-        if(receivedCaseData.communication.data.memos[i].text.toString().toLowerCase().indexOf(" has been attached - ")>=0){
-          kbaAddBalace++;
-        }else if(receivedCaseData.communication.data.memos[i].text.toString().toLowerCase().indexOf(" has been removed.")>=0){
-          kbaAddBalace--;
+        scriptReceivedCaseData = receivedCaseData;
+        setScriptUI(receivedCaseData);
         }
       }
-      //At the end if balance >0, there is a KBA added
-      var kbaCheckDiv = document.createElement("div");
-      if(!isCompactVersionActive){
-        //Full version
-        kbaCheckDiv.setAttribute("style","text-align: center; color: white;");
-        kbaCheckDiv.innerHTML = "<h3 style=\"margin-bottom:0%;\">KBA</h3>";
-        var kbaIndicatorDiv = document.createElement("h4");
-        if(kbaAddBalace>0){
-          isKbaAttached = true;
-          kbaIndicatorDiv.setAttribute("style","color: PaleGreen; margin-top:0%;");
-          kbaIndicatorDiv.innerHTML = "KBA Attached";
-        }else{
-          isKbaAttached = false;
-          kbaIndicatorDiv.setAttribute("style","color: LightCoral; margin-top:0%;");
-          kbaIndicatorDiv.innerHTML = "KBA Not Detected";
-        }
-        kbaCheckDiv.appendChild(kbaIndicatorDiv);
-        pulseCheckerDiv.appendChild(kbaCheckDiv);
-      }else{
-        //Compact version
-        if(kbaAddBalace > 0){
-          kbaCheckDiv.setAttribute("style","margin-left:10px; line-height:38px; vertical-align:-3px; display:inline-block; background-color: PaleGreen; width:25px; height:25px; border-radius:13px;");
-          kbaCheckDiv.setAttribute("title","KBA Detected");
-          kbaCheckDiv.innerHTML="<h3 style=\"text-align:center; vertical-align:top; color:white;\" title=\"KBA Detected\">K</h3>";
-        }else{
-          kbaCheckDiv.setAttribute("style","margin-left:10px; line-height:38px; vertical-align:-3px; display:inline-block; background-color: LightCoral; width:25px; height:25px; border-radius:13px;");
-          kbaCheckDiv.setAttribute("title","No KBA Detected");
-          kbaCheckDiv.innerHTML="<h3 style=\"text-align:center; vertical-align:top; color:white;\" title=\"No KBA Detected\">K</h3>";
-        }
-        pulseCheckerDiv.appendChild(kbaCheckDiv);
-      }
-              
-        //Add result KCS status check and CSM Insights
-        var csmInsightsDiv = document.createElement("h2");
-        if(!isCompactVersionActive){
-          //Full version
-          csmInsightsDiv.setAttribute("style","text-align: center; color: white; margin-top:-1%;");
-          if(csmInsights.length>0){
-            csmInsightsDiv.innerHTML = "<button style=\"align-items: center; padding: 6px 30px; border-radius: 3px; border: none; background: rgb(20, 125, 237); box-shadow: 0px 0.5px 1px rgba(0, 0, 0, 0.1); color: #DFDEDF;\" id=\"insights\"><h3 style=\"margin:0%; padding:0%;\" id=\"insightsText\">🛈 CSM Insights 🛈</h3></button>";
-          }else{
-            csmInsightsDiv.innerHTML = "<button style=\"align-items: center; padding: 6px 30px; border-radius: 3px; border: none; background: rgb(178, 179, 182); box-shadow: 0px 0.5px 1px rgba(0, 0, 0, 0.1); color: #DFDEDF;\" id=\"insights\"><h3 style=\"margin:0%; padding:0%;\" id=\"insightsText\">🛈 CSM Insights 🛈</h3></button>";
-          } 
-        }else{
-          //Compact Version
-          csmInsightsDiv.setAttribute("style","margin-left:12px; line-height:-5px; vertical-align:top; display:inline-block;");
-          if(csmInsights.length>0){
-            csmInsightsDiv.innerHTML = "<button style=\"align-items: center; vertical-align:top; margin-top:0px; padding: 6px 10px; border-radius: 20px; border: none; background: rgb(20, 125, 237); box-shadow: 0px 0.5px 1px rgba(0, 0, 0, 0.1); color: #DFDEDF;\" id=\"insights\"><h3 style=\"margin:0%; padding:0%;\" id=\"insightsText\">🛈</h3></button>";
-          }else{
-            csmInsightsDiv.innerHTML = "<button style=\"align-items: center; vertical-align:top; margin-top:0px; padding: 6px 10px; border-radius: 20px; border: none; background: rgb(178, 179, 182); box-shadow: 0px 0.5px 1px rgba(0, 0, 0, 0.1); color: #DFDEDF;\" id=\"insights\"><h3 style=\"margin:0%; padding:0%;\" id=\"insightsText\">🛈</h3></button>";
-          }
-        }
-
-        pulseCheckerDiv.appendChild(csmInsightsDiv);
-          
-        });
-
-        
-        document.body.appendChild(pulseCheckerDiv);
-
+      
   },
   //this seems to be what requests communication data from case
-  ["communication","headers"]);
+  ["communication","headers","knowledgematches","attachments"]);
+
+  //Function to set all the UI when case data is received. This is set in a separated function so it can be called to toggle between full and compact versions
+  function setScriptUI(receivedCaseData){
+    //clear any previous data
+    csmInsights = [];
+        
+    //when a case is open, query the Pulse data
+    pulseData = API.Pulse.get(receivedCaseData.id).then((pulse)=>{
+    //Clear any previous data
+    //Hide if no case is open
+    if(receivedCaseData.types[0] == "nocase"){
+      pulseCheckerDiv.setAttribute("style","display:none;")
+    }else if(!isCompactVersionActive){
+      //Full version
+      //Minimize button
+      pulseCheckerDiv.innerHTML = "<div style=\"text-align: center; color: white;\"><button style=\"border: none; display:block; width:99%; margin-left:0.5%; height:3%; border-radius:28px 28px 0px 0px; background-color:rgba(0, 0, 0, 0.35); color:white;\" id=\"toggleCompact\" title=\"Compact Version\">⤓</button><h2 style=\"margin-top:4%; margin-bottom:0%;\">CSM Companion</h2><h4 style=\"margin-bottom:4%; margin-top:0%;\">"+receivedCaseData.headers.data.number+"</h4><h3 style=\"margin-bottom:0%;\">Pulse Completion</h3></div>";
+      pulseCheckerDiv.setAttribute("style","display:block; position:absolute; z-index:99 ;top:"+defaultTopPosition+"; left:"+defaultLeftPosition+"; width:250px; height:400px; background-color:rgba(0, 0, 0, 0.65); border-radius:25px;");
+      pulseCheckerDiv.setAttribute("id","checkerDiv");
+    }else{
+      //Compact version
+      pulseCheckerDiv.innerHTML = "<div style=\"display:inline-block; vertical-align: baseline; color: white;\"><button style=\"border: none; border-radius:10px 0px 0px 0px; width:20px; height:20px; float:left; margin-right:8px; background-color:rgba(0, 0, 0, 0.35); color:white;\" id=\"toggleCompact\" title=\"Full-Size Version\">⤒</button><h3 style=\"display:inline-block; margin-top:-10%; margin-bottom:4%; margin-left:18%; margin-right:5%;\">CSM Companion</h3></div>";
+      pulseCheckerDiv.setAttribute("style","display:block; position:absolute; z-index:99 ;top:"+defaultTopPosition+"; left:"+defaultLeftPosition+"; width:330px; height:60px; background-color:rgba(0, 0, 0, 0.65); border-radius:10px;");
+      pulseCheckerDiv.setAttribute("id","checkerDiv");
+    }
+
+    //If categorization is "service request", pulse is not required
+
+    if(receivedCaseData.headers.data.resolutionError.category == "service_request"){
+      kcsCategorizeComplete = true;
+      kcsInvestigateComplete = true;
+      if(!isCompactVersionActive){
+        //Full version
+        var serviceRequestDiv = document.createElement("h4");
+        serviceRequestDiv.setAttribute("style","text-align: center; color: PaleGreen; margin: 1%;");
+        serviceRequestDiv.innerHTML = "Pulse Not Required (<abbr title=\"For Service Request cases, Pulse is not mandatory\"> ? </abbr>)";
+        pulseCheckerDiv.appendChild(serviceRequestDiv);
+      }else{
+        //Compact version
+        var serviceRequestDiv = document.createElement("div");
+        serviceRequestDiv.setAttribute("style","display:inline-block; background-color: PaleGreen; line-height:38px; vertical-align:-3px; width:25px; height:25px; border-radius:13px;");
+        serviceRequestDiv.setAttribute("title","For Service Request cases, Pulse is not mandatory");
+        serviceRequestDiv.innerHTML="<h3 style=\"text-align:center; vertical-align:top; color:white;\" title=\"Pulse Status\">P</h3>";
+        pulseCheckerDiv.appendChild(serviceRequestDiv);
+      }
+
+      //CSM PULSE INSIGHTS
+      //Service Request Pulse Completion
+      pushCsmInsight("Pulse completion is still suggested for Service Request Cases");
+
+    }else{
+
+      //CSM PULSE INSIGHTS
+      //Pulse last update
+      if(pulse != "New"){
+        var updateDate = new Date(pulse.sys_updated_on+" UTC");
+        var currentDate = new Date();
+        //Calculate difference in ms then convert to hours   
+        var updateTimeDifference = Math.abs(((updateDate.getTime() - currentDate.getTime())/(1000*60*60))); 
+        if(updateTimeDifference >= 48){
+          pushCsmInsight("Pulse has not been updated in the last 48 hours. Check if the existing pulse can be improved with new info.");
+        }
+        //Pulse update user (disconsider when pulse change comes from Case Assistant)
+        if(receivedCaseData.headers.data.processor != pulse.sys_updated_by && pulse.sys_updated_by!= "INT_ISE2SN"){
+          pushCsmInsight("Pulse was last updated by a different user. Check if the existing pulse can be improved with new info.");
+        }
+        //Check Pulse mandatory fields
+        verifyCategorizeSection(pulse);
+        verifyInvestigateSection(pulse);
+        if(!kcsCategorizeComplete || !kcsInvestigateComplete){
+          pushCsmInsight("For Pulse completion, it is mandatory to complete at least the Symptom and either Data Collected, Research or Research (Internal)");
+        }
+      }
+
+      if(!isCompactVersionActive){
+        //Full Version
+        //verify and list each section of pulse
+        //Categorization
+        var categorizeDiv = document.createElement("h4");
+        categorizeDiv.setAttribute("style","text-align: center; color: white; margin: 1%;");
+        try{
+          categorizeDiv.innerHTML = "Categorize: "+verifyCategorizeSection(pulse)+"/5"+((!kcsCategorizeComplete)?" (<abbr style=\"text-decoration: none\" title=\"For KCS adoption, Symptom is mandatory\"> ⚠ </abbr>)":"");
+          if(verifyCategorizeSection(pulse)==5){
+            categorizeDiv.setAttribute("style","text-align: center; color: PaleGreen; margin: 1%;");
+          }else if(verifyCategorizeSection(pulse)>0){
+            categorizeDiv.setAttribute("style","text-align: center; color: Khaki; margin: 1%;");
+          }else{
+            categorizeDiv.setAttribute("style","text-align: center; color: LightCoral; margin: 1%;");
+          }
+        }catch(err){
+          categorizeDiv.setAttribute("style","text-align: center; color: LightCoral; margin: 1%;");
+          categorizeDiv.innerHTML = "Categorize: 0/5"+((!kcsCategorizeComplete)?" (<abbr title=\"For KCS adoption, Symptom is mandatory\"> ⚠ </abbr>)":"");
+        }
+        pulseCheckerDiv.appendChild(categorizeDiv);
+
+        //Investigate
+        var investigateDiv = document.createElement("h4");
+        investigateDiv.setAttribute("style","text-align: center; color: white; margin: 1%;");
+        try{
+          investigateDiv.innerHTML = "Investigate: "+verifyInvestigateSection(pulse)+"/3"+((!kcsInvestigateComplete)?" (<abbr style=\"text-decoration: none\" title=\"For KCS adoption, at least one field must be filled\"> ⚠ </abbr>)":"");
+          if(verifyInvestigateSection(pulse)==3){
+            investigateDiv.setAttribute("style","text-align: center; color: PaleGreen; margin: 1%;");
+          }else if(verifyInvestigateSection(pulse)>0){
+            investigateDiv.setAttribute("style","text-align: center; color: Khaki; margin: 1%;");
+          }else{
+            investigateDiv.setAttribute("style","text-align: center; color: LightCoral; margin: 1%;");
+          }
+        }catch(err){
+          investigateDiv.setAttribute("style","text-align: center; color: LightCoral; margin: 1%;");
+          investigateDiv.innerHTML = "Investigate: 0/3"+((!kcsInvestigateComplete)?" (<abbr style=\"text-decoration: none\" title=\"For KCS adoption, at least one field must be filled\"> ⚠ </abbr>)":"");
+        }
+        pulseCheckerDiv.appendChild(investigateDiv);
+
+        //Resolution
+        var resolutionDiv = document.createElement("h4");
+        resolutionDiv.setAttribute("style","text-align: center; color: white;  margin: 1%;");
+        try{
+          resolutionDiv.innerHTML = "Resolution: "+verifyResolutionSection(pulse)+"/4";
+          if(verifyResolutionSection(pulse)==4){
+            resolutionDiv.setAttribute("style","text-align: center; color: PaleGreen; margin: 1%;");
+          }else if(verifyResolutionSection(pulse)>0){
+            resolutionDiv.setAttribute("style","text-align: center; color: Khaki; margin: 1%;");
+          }else{
+            resolutionDiv.setAttribute("style","text-align: center; color: LightCoral; margin: 1%;");
+          }
+        }catch(err){
+          resolutionDiv.setAttribute("style","text-align: center; color: LightCoral; margin: 1%;");
+          resolutionDiv.innerHTML = "Resolution: 0/4";
+        }
+        pulseCheckerDiv.appendChild(resolutionDiv);
+      }else{
+        //Compact Version
+        var pulseCompletionDiv = document.createElement("div");
+        try{
+          if(verifyCategorizeSection(pulse)==5 && verifyInvestigateSection(pulse)==3 && verifyResolutionSection(pulse)>=2){
+            pulseCompletionDiv.setAttribute("style","line-height:38px; vertical-align:-3px; display:inline-block; background-color: PaleGreen; width:25px; height:25px; border-radius:13px;");
+          }else if(verifyCategorizeSection(pulse)>0 && verifyInvestigateSection(pulse)>0 && verifyResolutionSection(pulse)>0 && (kcsInvestigateComplete && kcsCategorizeComplete)){
+            pulseCompletionDiv.setAttribute("style","line-height:38px; vertical-align:-3px; display:inline-block; background-color: Khaki; width:25px; height:25px; border-radius:13px;");
+          }else{
+            pulseCompletionDiv.setAttribute("style","line-height:38px; vertical-align:-3px; display:inline-block; background-color: LightCoral; width:25px; height:25px; border-radius:13px;");
+          }
+          pulseCompletionDiv.innerHTML="<h3 style=\"text-align:center; vertical-align:top; color:white;\" title=\"Pulse Status\">P</h3>";
+          pulseCompletionDiv.setAttribute("title","Pulse Status - Categorize: "+verifyCategorizeSection(pulse)+"/5, Investigate: "+verifyInvestigateSection(pulse)+"/3, Resolution: "+verifyResolutionSection(pulse)+"/4");
+          pulseCheckerDiv.appendChild(pulseCompletionDiv);
+        }catch(err){
+          pulseCompletionDiv.setAttribute("style","line-height:38px; vertical-align:-3px; display:inline-block; background-color: LightCoral; width:25px; height:25px; border-radius:13px;");
+          pulseCompletionDiv.innerHTML="<h3 style=\"text-align:center; vertical-align:top; color:white;\" title=\"Pulse Status\">P</h3>";
+          pulseCompletionDiv.setAttribute("title","Pulse Status - Categorize: 0/5, Investigate: 0/3, Resolution: 0/4");
+          pulseCheckerDiv.appendChild(pulseCompletionDiv);
+        }
+
+      }
+    }
+
+    //Error Categorization check
+    var errorCategorizationDiv = document.createElement("div");
+    if(!isCompactVersionActive){
+      //Full version
+      errorCategorizationDiv.setAttribute("style","text-align: center; color: white;");
+      errorCategorizationDiv.innerHTML = "<h3 style=\"margin-bottom:0%;\">Error Categorization</h3>";
+      var errorCategorizationIndicatorDiv = document.createElement("h4");
+      if(receivedCaseData.headers.data.resolutionError.subcategory == ""){
+        //check categories that do not have subcategory
+        if(receivedCaseData.headers.data.resolutionError.category == "customer_partner_issue" || receivedCaseData.headers.data.resolutionError.category == "database_inconsistency" || receivedCaseData.headers.data.resolutionError.category == "3party_partner_issue"){
+          errorCategorizationIndicatorDiv.setAttribute("style","color: PaleGreen; margin-top:0%;");
+          errorCategorizationIndicatorDiv.innerHTML = "Complete";
+          kcsCategorizationComplete = true;
+        }else{
+          errorCategorizationIndicatorDiv.setAttribute("style","color: LightCoral; margin-top:0%;");
+          errorCategorizationIndicatorDiv.innerHTML = "Incomplete";
+          kcsCategorizationComplete = false;
+        }
+      }else{
+          errorCategorizationIndicatorDiv.setAttribute("style","color: PaleGreen; margin-top:0%;");
+          errorCategorizationIndicatorDiv.innerHTML = "Complete";
+          kcsCategorizationComplete = true;
+      }
+      errorCategorizationDiv.appendChild(errorCategorizationIndicatorDiv);
+      pulseCheckerDiv.appendChild(errorCategorizationDiv);
+    }else{
+      //Compact version
+      if(receivedCaseData.headers.data.resolutionError.subcategory == ""){
+        //check categories that do not have subcategory
+        if(receivedCaseData.headers.data.resolutionError.category == "customer_partner_issue" || receivedCaseData.headers.data.resolutionError.category == "database_inconsistency" || receivedCaseData.headers.data.resolutionError.category == "3party_partner_issue"){
+          errorCategorizationDiv.setAttribute("style","margin-left:10px; line-height:38px; vertical-align:-3px; display:inline-block; background-color: PaleGreen; width:25px; height:25px; border-radius:13px;");
+          kcsCategorizationComplete = true;
+        }else{
+          errorCategorizationDiv.setAttribute("style","margin-left:10px; line-height:38px; vertical-align:-3px; display:inline-block; background-color: LightCoral; width:25px; height:25px; border-radius:13px;");
+          kcsCategorizationComplete = false;
+        }
+      }else{
+        errorCategorizationDiv.setAttribute("style","margin-left:10px; line-height:38px; vertical-align:-3px; display:inline-block; background-color: PaleGreen; width:25px; height:25px; border-radius:13px;");
+        kcsCategorizationComplete = true;
+      }
+
+      errorCategorizationDiv.innerHTML="<h3 style=\"text-align:center; vertical-align:top; color:white;\" title=\"Error Categorization\">E</h3>";
+      errorCategorizationDiv.setAttribute("title", (kcsCategorizationComplete)?"Error Categorization - Complete":"Error Categorization - Incomplete");
+      pulseCheckerDiv.appendChild(errorCategorizationDiv);
+
+    }
+
+    //CSM PULSE INSIGHTS
+    //How-to redirect
+    if(receivedCaseData.headers.data.resolutionError.category == "customer_partner_issue" && (receivedCaseData.headers.data.resolutionError.subcategory == "how_to_request" || receivedCaseData.headers.data.resolutionError.subcategory == "consulting_implementation_request")){
+      pushCsmInsight("Case is eligible for How-To Redirect process according to the current error categorization. Proceed with How-To redirect process.")
+    }
+
+    //Swarming Check
+    var swarmCheckDiv = document.createElement("div");
+    if(!isCompactVersionActive){
+      //Full version
+      swarmCheckDiv.setAttribute("style","text-align: center; color: white;");
+      swarmCheckDiv.innerHTML = "<h3 style=\"margin-bottom:0%;\">Swarming</h3>";
+      var swarmIndicatorDiv = document.createElement("h4");
+      //Check if swarm exists by searching in the pulse research (internal) section
+      try{
+        if(pulse.research_internal.toString().toLowerCase().indexOf("-- swarm") != -1){
+          swarmIndicatorDiv.setAttribute("style","color: PaleGreen; margin-top:0%;");
+          swarmIndicatorDiv.innerHTML = "Swarm Created";
+        }else{
+          swarmIndicatorDiv.setAttribute("style","color: Khaki; margin-top:0%;");
+          swarmIndicatorDiv.innerHTML = "No Swarm Detected";
+        }
+      }catch(err){
+        swarmIndicatorDiv.setAttribute("style","color: Khaki; margin-top:0%;");
+        swarmIndicatorDiv.innerHTML = "No Swarm Detected";
+      }
+      swarmCheckDiv.appendChild(swarmIndicatorDiv);
+      pulseCheckerDiv.appendChild(swarmCheckDiv);
+    }else{
+      //Compact version
+      try{
+        if(pulse.research_internal.toString().toLowerCase().indexOf("-- swarm") != -1){
+          swarmCheckDiv.setAttribute("style","margin-left:10px; line-height:38px; vertical-align:-3px; display:inline-block; background-color: PaleGreen; width:25px; height:25px; border-radius:13px;");
+          swarmCheckDiv.setAttribute("title", "Swarming Detected");
+        }else{
+          swarmCheckDiv.setAttribute("style","margin-left:10px; line-height:38px; vertical-align:-3px; display:inline-block; background-color: Khaki; width:25px; height:25px; border-radius:13px;");
+          swarmCheckDiv.setAttribute("title", "No Swarming Detected");
+        }
+      }catch(err){
+        swarmCheckDiv.setAttribute("style","margin-left:10px; line-height:38px; vertical-align:-3px; display:inline-block; background-color: Khaki; width:25px; height:25px; border-radius:13px;");
+        swarmCheckDiv.setAttribute("title", "No Swarming Detected");
+      }
+      swarmCheckDiv.innerHTML="<h3 style=\"text-align:center; vertical-align:top; color:white;\" title=\"Swarming\">S</h3>";
+      pulseCheckerDiv.appendChild(swarmCheckDiv);
+    }
+
+  //CSM PULSE INSIGHTS - check if pulse was updated after customer returned
+  var lastCustomerResponseTime;
+  for(var i=(receivedCaseData.communication.data.memos.length-1); i>=0;i--){
+    //Check for the latest reply from customer
+    if(receivedCaseData.communication.data.memos[i].memoType == "Info to SAP"){
+      lastCustomerResponseTime = receivedCaseData.communication.data.memos[i].Timestamp;
+      break;
+    }
+  }
+  var pulseUpdateDate = new Date(pulse.sys_updated_on+" UTC");
+  var replyDate = new Date(lastCustomerResponseTime+" UTC");
+  if(replyDate > pulseUpdateDate){
+    pushCsmInsight("Pulse was not yet updated after the latest customer note. Please check whether the Pulse analysis can be improved.");
+  }
+
+  //CSM INCIDENT INSIGHTS - Check if pulse was updated after incident update
+  var lastIncidentResponsetime;
+  for(var i=(receivedCaseData.communication.data.memos.length-1); i>=0;i--){
+    if(receivedCaseData.communication.data.memos[i].type == "u_work_notes_incident"){
+      if(receivedCaseData.communication.data.memos[i].text.toString().toLowerCase().indexOf(" resolution category: ")>=0){
+        lastIncidentResponsetime = receivedCaseData.communication.data.memos[i].Timestamp;
+        break;
+      }
+    }
+  }
+  var incidentDate = new Date(lastIncidentResponsetime+" UTC");
+  if(incidentDate > pulseUpdateDate){
+    pushCsmInsight("Pulse was not yet updated after the latest resolution on the associated incident. Please check if Pulse can be improved.");
+  }
+
+  //CSM KBA INSIGHTS - check if the last KBA was attached more than 5 days ago
+  var lastKbaAdded;
+  for(var i=(receivedCaseData.communication.data.memos.length-1); i>=0;i--){
+    //Check for the latest reply from customer
+    if(receivedCaseData.communication.data.memos[i].text.toString().toLowerCase().indexOf(" has been attached - ")>=0){
+      lastKbaAdded = receivedCaseData.communication.data.memos[i].Timestamp;
+      break;
+    }
+  }
+  var lastKbaDate = new Date(lastKbaAdded+" UTC");
+  var currentDate = new Date();
+  //Calculate difference in ms then convert to hours   
+  var updateTimeDifference = Math.abs(((lastKbaDate.getTime() - currentDate.getTime())/(1000*60*60)));
+  if(updateTimeDifference > 120){
+    pushCsmInsight("No KBA has been attached in the last 5 days. Please check whether all relevant KBAs are attached.");
+  }
+
+  //CSM KBA INSIGHTS - Check if any KBA is attached to the case
+  //CSM KBA INSIGHTS - check if there are any currently attached KBAs by the processor
+  //CSM KBA INSIGHTS - check if KBA attached to the case is mentioned in the pulse
+  let kbaAddBalace = 0;
+  let processorKbaAddBalance = 0;
+  let kbasAttached = [];
+  //count KBAs added and KBAs removed, then compare the numbers to check if a KBA is attached
+  for(let i=0; i<receivedCaseData.communication.data.memos.length;i++){
+    if(receivedCaseData.communication.data.memos[i].text.toString().toLowerCase().indexOf(" has been attached - ")>=0){
+      kbaAddBalace++;
+      //the author of a case note (such as KBA add notes) comes as "name (i-user)", so we split twice to get only the i-user and compare to the processor
+      if((receivedCaseData.communication.data.memos[i].userName.split("(")[1].split(")")[0]) == receivedCaseData.headers.data.processor){
+        processorKbaAddBalance++;
+      }
+      //collect the KBA ID (splitting the html reveals the numeric KBA ID, which can be searched in pulse. Splitting by " leaves the ID on index 3)
+      //exclude bridge KBAs
+      if(["2531750","2576522","2537493","2531712","2973358","2537448","2543549","2531826","2543587","2531827","2531921","2531650","2531747","2528300","2541693","2541754","2532334","2532326","2531828","2527097","3488027","2531864","2572475","2532347"].indexOf(receivedCaseData.communication.data.memos[i].html.split('\"')[3].slice(3))<0){
+        kbasAttached.push(receivedCaseData.communication.data.memos[i].html.split('\"')[3]);
+      }
+      
+    }else if(receivedCaseData.communication.data.memos[i].text.toString().toLowerCase().indexOf(" has been removed.")>=0){
+      kbaAddBalace--;
+      if((receivedCaseData.communication.data.memos[i].userName.split("(")[1].split(")")[0]) == receivedCaseData.headers.data.processor){
+        processorKbaAddBalance--;
+      }
+      //collect the KBA ID and remove it from the added KBA IDs array
+      kbasAttached = kbasAttached.filter(e => e != receivedCaseData.communication.data.memos[i].html.split('\"')[3]);
+    }
+  }
+  //CSM INSIGHTS - check if KBAs attached are referenced in pulse
+  var kbasFound = 0;
+  for(var i=0; i<kbasAttached.length;i++){
+    //check if pulse research of research internal has the KBA ID (removing the 3 leading zeros)
+    if(pulse.research.indexOf(kbasAttached[i].slice(3)) >= 0 || pulse.research_internal.indexOf(kbasAttached[i].slice(3)) >= 0){
+      kbasFound++;
+    }
+  }
+  if(kbasFound != kbasAttached.length){
+    pushCsmInsight("It seems that one or more KBAs attached to the case are not mentioned in the Pulse summary. Please check whether all relevant KBAs are mentioned.");
+  }
+  //CSM INSIGHTS - check if there are any currently attached KBAs by the processor
+  if(processorKbaAddBalance<=0){
+    pushCsmInsight("No KBA seems to have been attached by the current processor of this case. Please check if all relevant KBAs are attached.")
+  }
+  //At the end if balance >0, there is a KBA added
+  var kbaCheckDiv = document.createElement("div");
+  if(!isCompactVersionActive){
+    //Full version
+    kbaCheckDiv.setAttribute("style","text-align: center; color: white;");
+    kbaCheckDiv.innerHTML = "<h3 style=\"margin-bottom:0%;\">KBA</h3>";
+    var kbaIndicatorDiv = document.createElement("h4");
+    if(kbaAddBalace>0){
+      isKbaAttached = true;
+      kbaIndicatorDiv.setAttribute("style","color: PaleGreen; margin-top:0%;");
+      kbaIndicatorDiv.innerHTML = "KBA Attached";
+    }else{
+      isKbaAttached = false;
+      kbaIndicatorDiv.setAttribute("style","color: LightCoral; margin-top:0%;");
+      kbaIndicatorDiv.innerHTML = "KBA Not Detected";
+    }
+    kbaCheckDiv.appendChild(kbaIndicatorDiv);
+    pulseCheckerDiv.appendChild(kbaCheckDiv);
+  }else{
+    //Compact version
+    if(kbaAddBalace > 0){
+      kbaCheckDiv.setAttribute("style","margin-left:10px; line-height:38px; vertical-align:-3px; display:inline-block; background-color: PaleGreen; width:25px; height:25px; border-radius:13px;");
+      kbaCheckDiv.setAttribute("title","KBA Detected");
+      kbaCheckDiv.innerHTML="<h3 style=\"text-align:center; vertical-align:top; color:white;\" title=\"KBA Detected\">K</h3>";
+    }else{
+      kbaCheckDiv.setAttribute("style","margin-left:10px; line-height:38px; vertical-align:-3px; display:inline-block; background-color: LightCoral; width:25px; height:25px; border-radius:13px;");
+      kbaCheckDiv.setAttribute("title","No KBA Detected");
+      kbaCheckDiv.innerHTML="<h3 style=\"text-align:center; vertical-align:top; color:white;\" title=\"No KBA Detected\">K</h3>";
+    }
+    pulseCheckerDiv.appendChild(kbaCheckDiv);
+  }
+          
+    //Add result KCS status check and CSM Insights
+    var csmInsightsDiv = document.createElement("h2");
+    if(!isCompactVersionActive){
+      //Full version
+      csmInsightsDiv.setAttribute("style","text-align: center; color: white; margin-top:-1%;");
+      if(csmInsights.length>0){
+        csmInsightsDiv.innerHTML = "<button style=\"align-items: center; padding: 6px 30px; border-radius: 3px; border: none; background: rgb(20, 125, 237); box-shadow: 0px 0.5px 1px rgba(0, 0, 0, 0.1); color: #DFDEDF;\" id=\"insights\"><h3 style=\"margin:0%; padding:0%;\" id=\"insightsText\">🛈 CSM Insights 🛈</h3><div style=\"width:16px; heigth:20px; border-radius:12px; background-color:red; position:absolute; top:355px; left:205px; padding:2px;\">"+csmInsights.length+"</div></button>";
+      }else{
+        csmInsightsDiv.innerHTML = "<button style=\"align-items: center; padding: 6px 30px; border-radius: 3px; border: none; background: rgb(178, 179, 182); box-shadow: 0px 0.5px 1px rgba(0, 0, 0, 0.1); color: #DFDEDF;\" id=\"insights\"><h3 style=\"margin:0%; padding:0%;\" id=\"insightsText\">🛈 CSM Insights 🛈</h3></button>";
+      } 
+    }else{
+      //Compact Version
+      csmInsightsDiv.setAttribute("style","margin-left:10px; margin-top: -6px; vertical-align:middle; display:inline-block;");
+      csmInsightsDiv.setAttribute("title","KCS Insights");
+      if(csmInsights.length>0){
+        csmInsightsDiv.innerHTML = "<button style=\"align-items: center; vertical-align:top; margin-top:0px; padding: 6px 10px; border-radius: 20px; border: none; background: rgb(20, 125, 237); box-shadow: 0px 0.5px 1px rgba(0, 0, 0, 0.1); color: #DFDEDF;\" id=\"insights\" title=\"KCS Insights\"><h3 title=\"KCS Insights\" style=\"margin:0%; padding:0%;\" id=\"insightsText\">🛈</h3><div style=\"width:16px; heigth:20px; border-radius:12px; background-color:red; position:absolute; top:4px; left:296px; padding:2px;\">"+csmInsights.length+"</div></button>";
+      }else{
+        csmInsightsDiv.innerHTML = "<button style=\"align-items: center; vertical-align:top; margin-top:0px; padding: 6px 10px; border-radius: 20px; border: none; background: rgb(178, 179, 182); box-shadow: 0px 0.5px 1px rgba(0, 0, 0, 0.1); color: #DFDEDF;\" id=\"insights\"><h3 style=\"margin:0%; padding:0%;\" id=\"insightsText\">🛈</h3></button>";
+      }
+    }
+
+    pulseCheckerDiv.appendChild(csmInsightsDiv);
+      
+    });
+
+    
+    document.body.appendChild(pulseCheckerDiv);
+  }
   
 
   function verifyCategorizeSection(pulse){
     let counter = 0;
     kcsCategorizeComplete = false;
-    if(trimPulseField(pulse.symptom).length > 2){
-      counter++;
-      //According to KCS, pulse needs at least the symptom to be considered complete
-      kcsCategorizeComplete = true;
-    }
-    if(trimPulseField(pulse.environment).length > 2){
-      counter++;
-    }
-    if(trimPulseField(pulse.steps_to_reproduce).length > 2){
-      counter++;
-    }
-    if(trimPulseField(pulse.business_impact).length > 2){
-      counter++;
-    }
-    if(trimPulseField(pulse.customer_contacts).length > 2){
-      counter++;
-    }
+    if(pulse == "New"){
+      throw new Error("Pulse is initial");
+    }else{
+      if(trimPulseField(pulse.symptom).length > 2){
+        counter++;
+        //According to KCS, pulse needs at least the symptom to be considered complete
+        kcsCategorizeComplete = true;
+      }
+      if(trimPulseField(pulse.environment).length > 2){
+        counter++;
+      }
+      if(trimPulseField(pulse.steps_to_reproduce).length > 2){
+        counter++;
+      }
+      if(trimPulseField(pulse.business_impact).length > 2){
+        counter++;
+      }
+      if(trimPulseField(pulse.customer_contacts).length > 2){
+        counter++;
+      }
 
-    return counter;
+      return counter;
+    }
   }
 
   function verifyInvestigateSection(pulse){
     let counter = 0;
     kcsInvestigateComplete = false;
-    if(trimPulseField(pulse.data_collected).length > 2){
-      counter++;
-    }
-    if(trimPulseField(pulse.research).length > 2){
-      counter++;
-    }
-    if(trimPulseField(pulse.research_internal).length > 2){
-      counter++;
-    }
+    if(pulse == "New"){
+      throw new Error("Pulse is initial");
+    }else{
+      if(trimPulseField(pulse.data_collected).length > 2){
+        counter++;
+      }
+      if(trimPulseField(pulse.research).length > 2){
+        counter++;
+      }
+      if(trimPulseField(pulse.research_internal).length > 2){
+        counter++;
+      }
 
-    //According to KCS, pulse needs at least 1 field complete for Investigate and Diagnose
-    if(counter > 0){
-      kcsInvestigateComplete = true;
+      //According to KCS, pulse needs at least 1 field complete for Investigate and Diagnose
+      if(counter > 0){
+        kcsInvestigateComplete = true;
+      }
+      return counter;
     }
-    return counter;
   }
 
   function verifyResolutionSection(pulse){
     let counter = 0;
-    if(trimPulseField(pulse.cause).length > 2){
-      counter++;
-    }
-    if(trimPulseField(pulse.solution).length > 2){
-      counter++;
-    }
-    if(trimPulseField(pulse.see_also).length > 2){
-      counter++;
-    }
-    if(trimPulseField(pulse.internal_memo_html).length > 2){
-      counter++;
-    }
+    if(pulse == "New"){
+      throw new Error("Pulse is initial");
+    }else{
+      if(trimPulseField(pulse.cause).length > 2){
+        counter++;
+      }
+      if(trimPulseField(pulse.solution).length > 2){
+        counter++;
+      }
+      if(trimPulseField(pulse.see_also).length > 2){
+        counter++;
+      }
+      if(trimPulseField(pulse.internal_memo_html).length > 2){
+        counter++;
+      }
 
-    return counter;
+      return counter;
+    }
   }
 
   function trimPulseField(fieldData){
@@ -730,4 +854,3 @@ ise.case.onUpdate2(
     trimmedValue = trimmedValue.substring(0,(trimmedValue.length-4));
     return trimmedValue;
   }
-
