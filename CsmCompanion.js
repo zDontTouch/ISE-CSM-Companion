@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name     CSM Companion
-// @version  1.4.1
+// @version  1.5
 // @grant    none
 // @match    *://itsm.services.sap/*
 // @include  *://itsm.services.sap/*
@@ -273,8 +273,33 @@ async function iaRequest(path, method = "GET", body = undefined) {
 
 /*****************************************************************************************************/
 
-var defaultLeftPosition = "3%";
-var defaultTopPosition = "52%";
+var defaultLeftPosition;
+var defaultTopPosition;
+//check existing saved position
+try{
+  if(localStorage.getItem("csm_companion_default_position").length > 0){
+    defaultLeftPosition = (localStorage.getItem("csm_companion_default_position").split(",")[0]);
+    defaultTopPosition = (localStorage.getItem("csm_companion_default_position").split(",")[1]);
+  }else{
+    defaultLeftPosition = "3%";
+    defaultTopPosition = "52%";
+  }
+}catch(err){
+  defaultLeftPosition = "3%";
+  defaultTopPosition = "52%";
+}
+
+var isCompactVersionActive;
+//check existing saved mode
+try{
+  if(localStorage.getItem("csm_companion_default_mode") != null){
+    isCompactVersionActive = (localStorage.getItem("csm_companion_default_mode") === "true");
+  }else{
+    isCompactVersionActive = false;
+  }
+}catch(err){
+  isCompactVersionActive = false;
+}
 var pulseCheckerDiv = document.createElement("div");
 pulseCheckerDiv.setAttribute("id","checkerDiv");
 document.body.appendChild(pulseCheckerDiv);
@@ -284,8 +309,10 @@ var kcsInvestigateComplete = false;
 var kcsCategorizationComplete = false;
 var csmInsights = [];
 var isKbaAttached = false;
-var isCompactVersionActive = false;
 var scriptReceivedCaseData;
+var containerFullHeigth = 400;
+var containerCompactHeigth = 60;
+var uiIsSet = false;
 
 //Set CSM Insight add function
 function pushCsmInsight(insight){
@@ -326,6 +353,7 @@ function onMouseDrag(movementX, movementY){
   container.style.top = (movementY-relativeMouseY)+"px";
   defaultLeftPosition = (movementX-relativeMouseX)+"px";
   defaultTopPosition = (movementY-relativeMouseY)+"px";
+  localStorage.setItem("csm_companion_default_position",(defaultLeftPosition+","+defaultTopPosition));
 }
 
 container.addEventListener("mousedown", (e)=>{
@@ -337,17 +365,34 @@ container.addEventListener("mousedown", (e)=>{
     }
   }else if(e.target.id == "toggleCompact"){
     isCompactVersionActive = !isCompactVersionActive;
+    localStorage.setItem("csm_companion_default_mode",isCompactVersionActive);
     setScriptUI(scriptReceivedCaseData);
     //adjust position when toggling back to full mode
-    /*setTimeout(() => {
-      if(!isCompactVersionActive){
+    if(!isCompactVersionActive){
+      setTimeout(() => {      
         var containerStyle = window.getComputedStyle(container);
         container.style.position = "absolute";
-        container.style.top = ((container.style.top.split("p")[0])-360)+"px";
-        //TODO: if position + 360 > screen height, set position to screen height - 400
-      }
-    }, 1100);*/
-    
+        if ((parseInt(containerStyle.top) + parseInt(containerFullHeigth)) > window.innerHeight){
+          container.style.top = (window.innerHeight - containerFullHeigth)+"px";
+          defaultTopPosition = container.style.top;
+          localStorage.setItem("csm_companion_default_position",(defaultLeftPosition+","+defaultTopPosition));
+
+        }
+      }, 1100);
+    }else{
+      setTimeout(() => {
+        var containerStyle = window.getComputedStyle(container);
+        container.style.position = "absolute";
+        container.style.top = (parseInt(containerStyle.top) + (containerFullHeigth - containerCompactHeigth))+"px";
+        if(parseInt(container.style.top) > (window.innerHeight-containerCompactHeigth)){
+          container.style.top = (window.innerHeight - containerCompactHeigth)+"px";
+          defaultTopPosition = container.style.top;
+          localStorage.setItem("csm_companion_default_position",(defaultLeftPosition+","+defaultTopPosition));
+        }
+        
+      }, 1350);
+    }
+          
   }else{
     bounds = container.getBoundingClientRect();
     relativeMouseX = e.clientX - bounds.left;
@@ -381,7 +426,8 @@ ise.case.onUpdate2(
   function setScriptUI(receivedCaseData){
     //clear any previous data
     csmInsights = [];
-        
+    uiIsSet = false;
+
     //when a case is open, query the Pulse data
     pulseData = API.Pulse.get(receivedCaseData.id).then((pulse)=>{
     //Clear any previous data
@@ -392,12 +438,12 @@ ise.case.onUpdate2(
       //Full version
       //Minimize button
       pulseCheckerDiv.innerHTML = "<div style=\"text-align: center; color: white;\"><button style=\"border: none; display:block; width:99%; margin-left:0.5%; height:3%; border-radius:28px 28px 0px 0px; background-color:rgba(0, 0, 0, 0.35); color:white;\" id=\"toggleCompact\" title=\"Compact Version\">⤓</button><h2 style=\"margin-top:4%; margin-bottom:0%;\">CSM Companion</h2><h4 style=\"margin-bottom:4%; margin-top:0%;\">"+receivedCaseData.headers.data.number+"</h4><h3 style=\"margin-bottom:0%;\">Pulse Completion</h3></div>";
-      pulseCheckerDiv.setAttribute("style","display:block; position:absolute; z-index:99 ;top:"+defaultTopPosition+"; left:"+defaultLeftPosition+"; width:250px; height:400px; background-color:rgba(0, 0, 0, 0.65); border-radius:25px;");
+      pulseCheckerDiv.setAttribute("style","display:block; position:absolute; z-index:99 ;top:"+defaultTopPosition+"; left:"+defaultLeftPosition+"; width:250px; height:"+containerFullHeigth+"px; background-color:rgba(0, 0, 0, 0.65); border-radius:25px;");
       pulseCheckerDiv.setAttribute("id","checkerDiv");
     }else{
       //Compact version
       pulseCheckerDiv.innerHTML = "<div style=\"display:inline-block; vertical-align: baseline; color: white;\"><button style=\"border: none; border-radius:10px 0px 0px 0px; width:20px; height:20px; float:left; margin-right:8px; background-color:rgba(0, 0, 0, 0.35); color:white;\" id=\"toggleCompact\" title=\"Full-Size Version\">⤒</button><h3 style=\"display:inline-block; margin-top:-10%; margin-bottom:4%; margin-left:18%; margin-right:5%;\">CSM Companion</h3></div>";
-      pulseCheckerDiv.setAttribute("style","display:block; position:absolute; z-index:99 ;top:"+defaultTopPosition+"; left:"+defaultLeftPosition+"; width:330px; height:60px; background-color:rgba(0, 0, 0, 0.65); border-radius:10px;");
+      pulseCheckerDiv.setAttribute("style","display:block; position:absolute; z-index:99 ;top:"+defaultTopPosition+"; left:"+defaultLeftPosition+"; width:330px; height:"+containerCompactHeigth+"px; background-color:rgba(0, 0, 0, 0.65); border-radius:10px;");
       pulseCheckerDiv.setAttribute("id","checkerDiv");
     }
 
@@ -760,7 +806,7 @@ ise.case.onUpdate2(
       csmInsightsDiv.setAttribute("style","margin-left:10px; margin-top: -6px; vertical-align:middle; display:inline-block;");
       csmInsightsDiv.setAttribute("title","KCS Insights");
       if(csmInsights.length>0){
-        csmInsightsDiv.innerHTML = "<button style=\"align-items: center; vertical-align:top; margin-top:0px; padding: 6px 10px; border-radius: 20px; border: none; background: rgb(20, 125, 237); box-shadow: 0px 0.5px 1px rgba(0, 0, 0, 0.1); color: #DFDEDF;\" id=\"insights\" title=\"KCS Insights\"><h3 title=\"KCS Insights\" style=\"margin:0%; padding:0%;\" id=\"insightsText\">🛈</h3><div style=\"width:16px; heigth:20px; border-radius:12px; background-color:red; position:absolute; top:4px; left:296px; padding:2px;\">"+csmInsights.length+"</div></button>";
+        csmInsightsDiv.innerHTML = "<button style=\"align-items: center; vertical-align:top; margin-top:0px; padding: 6px 10px; border-radius: 20px; border: none; background: rgb(20, 125, 237); box-shadow: 0px 0.5px 1px rgba(0, 0, 0, 0.1); color: #DFDEDF;\" id=\"insights\" title=\"KCS Insights\"><h3 title=\"KCS Insights\" style=\"margin:0%; padding:0%;\" id=\"insightsText\">🛈</h3><div style=\"width:16px; heigth:20px; border-radius:12px; background-color:red; position:absolute; top:4px; left:300px; padding:2px;\">"+csmInsights.length+"</div></button>";
       }else{
         csmInsightsDiv.innerHTML = "<button style=\"align-items: center; vertical-align:top; margin-top:0px; padding: 6px 10px; border-radius: 20px; border: none; background: rgb(178, 179, 182); box-shadow: 0px 0.5px 1px rgba(0, 0, 0, 0.1); color: #DFDEDF;\" id=\"insights\"><h3 style=\"margin:0%; padding:0%;\" id=\"insightsText\">🛈</h3></button>";
       }
@@ -772,6 +818,7 @@ ise.case.onUpdate2(
 
     
     document.body.appendChild(pulseCheckerDiv);
+    uiIsSet = true;
   }
   
 
