@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name     CSM Companion
-// @version  1.5
+// @version  1.6
 // @grant    none
 // @match    *://itsm.services.sap/*
 // @include  *://itsm.services.sap/*
@@ -383,12 +383,35 @@ function pushCsmInsight(insight, type){
   }
 }
 
+//create insights list box
+function openCsmInsights(insights){
+    let insightsPopup = document.createElement("div");
+    insightsPopup.setAttribute("style","position:absolute; z-index:99; display:block; border-radius:15px; width:800px; heigth:800px; bottom:0%; left:102%; background-color:rgba(0, 0, 0, 0.65); color:white; padding:20px;");
+    insightsPopup.setAttribute("id", "insightsPopup");
+    insightsPopup.innerHTML = "<button style=\"border: none; display:block; position:absolute; right:5%; width:10px; height:10px; border-radius:28px 28px 0px 0px; background-color:rgba(0, 0, 0, 0.35); color:white;\" id=\"closeInsights\" title=\"Close Insights\">X</button>";
+    insightsPopup.innerHTML += insights;
+  if(!isInsightsOpen){
+    pulseCheckerDiv.appendChild(insightsPopup);
+    isInsightsOpen = true;
+  }else{
+    try{
+      document.getElementById("checkerDiv").removeChild(document.getElementById("insightsPopup"));
+    }catch(err){
+      //element may already be removed due to toggling full/compact modes
+      isInsightsOpen = false
+    }
+    isInsightsOpen = false;
+  }
+  
+}
+
 //Set draggable box
 var container = document.getElementById("checkerDiv");
 var initialMousePosition = [];
 var bounds;
 var relativeMouseX;
 var relativeMouseY; 
+var isInsightsOpen = false;
 
 function handleMouseMove(event){
   event.preventDefault();
@@ -406,6 +429,89 @@ function onMouseDrag(movementX, movementY){
   defaultTopPosition = (movementY-relativeMouseY)+"px";
   localStorage.setItem("csm_companion_default_position",(defaultLeftPosition+","+defaultTopPosition));
 }
+
+container.addEventListener("mousedown", (e)=>{
+  if(e.target.id == "insights" || e.target.id == "insightsText"){
+
+    if(pulseCsmInsights.length>0 || kbaCsmInsights.length>0 || otherCsmInsights.length>0 || aiCsmInsights.length>0){
+      var insightString = "<big>";
+      if(pulseCsmInsights.length>0){
+        insightString = insightString + "<b>PULSE</b><br>";
+        insightString = insightString + (pulseCsmInsights.join("<br>")) + "<br><br>";
+      }
+      if(kbaCsmInsights.length>0){
+        insightString = insightString + "<b>KBA</b><br>";
+        insightString = insightString + (kbaCsmInsights.join("<br>")) + "<br><br>";
+      }
+      if(aiCsmInsights.length>0){
+        insightString = insightString + "<b>AI (experimental)</b><br>";
+        insightString = insightString + (aiCsmInsights.join("<br>")) + "<br><br>";
+      }
+      if(otherCsmInsights.length>0){
+        insightString = insightString + "<b>OTHERS</b><br>";
+        insightString = insightString + (otherCsmInsights.join("<br>"));
+      }
+      insightString+="</big>"
+      //alert("<b>CSM Insights (Beta)</b><br><br>"+insightString+"</small>");
+      openCsmInsights(insightString);
+    }else{
+      //alert("No CSM Insights :)");
+    }
+  }else if(e.target.id == "toggleCompact"){
+    isCompactVersionActive = !isCompactVersionActive;
+    localStorage.setItem("csm_companion_default_mode",isCompactVersionActive);
+    setScriptUI(scriptReceivedCaseData);
+    //toggling modes closes the insight append, so we signal it is closed
+    isInsightsOpen = false;
+    //adjust position when toggling back to full mode
+    if(!isCompactVersionActive){
+      setTimeout(() => {      
+        var containerStyle = window.getComputedStyle(container);
+        container.style.position = "absolute";
+        defaultTopPosition = container.style.top;
+        localStorage.setItem("csm_companion_default_position",(defaultLeftPosition+","+defaultTopPosition));
+        if ((parseInt(containerStyle.top) + parseInt(containerFullHeigth)) > window.innerHeight){
+          container.style.top = (window.innerHeight - containerFullHeigth)+"px";
+          defaultTopPosition = container.style.top;
+          localStorage.setItem("csm_companion_default_position",(defaultLeftPosition+","+defaultTopPosition));
+        }
+      }, 1100);
+    }else{
+      setTimeout(() => {
+        var containerStyle = window.getComputedStyle(container);
+        container.style.position = "absolute";
+        container.style.top = (parseInt(containerStyle.top) + (containerFullHeigth - containerCompactHeigth))+"px";
+        defaultTopPosition = container.style.top;
+        localStorage.setItem("csm_companion_default_position",(defaultLeftPosition+","+defaultTopPosition));
+        if(parseInt(container.style.top) > (window.innerHeight-containerCompactHeigth)){
+          container.style.top = (window.innerHeight - containerCompactHeigth)+"px";
+          defaultTopPosition = container.style.top;
+          localStorage.setItem("csm_companion_default_position",(defaultLeftPosition+","+defaultTopPosition));
+        }
+        
+      }, 1350);
+    }
+          
+  }else if(e.target.id == "closeInsights"){
+    openCsmInsights(insightString);
+  }else{
+    bounds = container.getBoundingClientRect();
+    relativeMouseX = e.clientX - bounds.left;
+    relativeMouseY = e.clientY - bounds.top;
+    document.addEventListener("mousemove", handleMouseMove);
+  }
+  
+});
+
+document.addEventListener("mouseup",()=>{
+  document.removeEventListener("mousemove", handleMouseMove);
+});
+
+
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+//                             CSM AI INSIGHTS - EXPERIMENTAL                                //
+///////////////////////////////////////////////////////////////////////////////////////////////
 
 async function triggerAI(prompt){
     var aiResponse;
@@ -438,12 +544,9 @@ async function triggerAI(prompt){
     return aiResponse;
 }
 
-///////////////////////////////////////////////////////////////////////////////////////////////
-//                             CSM AI INSIGHTS - EXPERIMENTAL                                //
-///////////////////////////////////////////////////////////////////////////////////////////////
-async function processAiInsights(pulse, attachments){
+async function processAiInsights(pulse, attachments, description){
   //initial prompt
-  var aiPrompt = "Respond the following series of queries in the sequence, which are separated by ||, that they are writen separating the answers with a comma:";
+  var aiPrompt = "Respond the following series of queries in the sequence, which are separated by ||, separating the answers with a comma:";
   //numbered steps
   if(trimPulseField(pulse.steps_to_reproduce).length>2 && trimPulseField(pulse.steps_to_reproduce).toLowerCase()!= "n/a"){
       //if the numbering is done through Case Assistant, it comes as <li> instead of a numbered list, so we force a replace to "1." since it is a numbered list
@@ -453,6 +556,9 @@ async function processAiInsights(pulse, attachments){
         aiPrompt += "Respond with 'true' or 'false' if the following text contains at least one numbered step:"+trimPulseField(pulse.steps_to_reproduce);
       }
     
+  }else{
+    //dummy prompt to force a 'true' and not push insight
+    aiPrompt += "1 plus 1 equals 2";
   }
   //attachments in data collected
   let attachmentCount = 0;
@@ -465,7 +571,14 @@ async function processAiInsights(pulse, attachments){
   //If there is any attachment added, try to check if they are mentioned in pulse
   if(attachmentCount > 0){
     aiPrompt += "||Imagine that you are an SAP support engineer, and you are reading the analysis of a support case made by a colleague. Respond with 'true' or 'false' if the following text from the analysis contains any mention of a document or screenshot or image that was attached or is an attachment:"+trimPulseField(pulse.data_collected);
+  }else{
+    //dummy prompt to force a 'true' and not push insight
+    aiPrompt += "|| 1 plus 1 equals 2";
   }
+
+  //error message in description
+  var decodedDescription = description.replaceAll("&#34;","\"").replaceAll("&#39;","'");
+  aiPrompt+= "||Respond with 'true' or 'false' if the following text has a quoted sentence or error message:"+decodedDescription;
   var aiAnswer = await triggerAI(aiPrompt);
   var insightResults = aiAnswer.split(",");
 
@@ -478,78 +591,12 @@ async function processAiInsights(pulse, attachments){
   if(insightResults[1].toString().trim().toLowerCase() == "false"){
     pushCsmInsight("It seems that there is at least one attachment in this case. Please ensure that the same is mentioned in the Pulse summary.","ai");
   }
-}
 
-container.addEventListener("mousedown", (e)=>{
-  if(e.target.id == "insights" || e.target.id == "insightsText"){
-
-    if(pulseCsmInsights.length>0 || kbaCsmInsights.length>0 || otherCsmInsights.length>0 || aiCsmInsights.length>0){
-      var insightString = "<small>";
-      if(pulseCsmInsights.length>0){
-        insightString = insightString + "<b>PULSE</b><br>";
-        insightString = insightString + (pulseCsmInsights.join("<br>")) + "<br><br>";
-      }
-      if(kbaCsmInsights.length>0){
-        insightString = insightString + "<b>KBA</b><br>";
-        insightString = insightString + (kbaCsmInsights.join("<br>")) + "<br><br>";
-      }
-      if(aiCsmInsights.length>0){
-        insightString = insightString + "<b>AI (experimental)</b><br>";
-        insightString = insightString + (aiCsmInsights.join("<br>")) + "<br><br>";
-      }
-      if(otherCsmInsights.length>0){
-        insightString = insightString + "<b>OTHERS</b><br>";
-        insightString = insightString + (otherCsmInsights.join("<br>"));
-      }
-      alert("<b>CSM Insights (Beta)</b><br><br>"+insightString+"</small>");
-    }else{
-      alert("No CSM Insights :)");
-    }
-  }else if(e.target.id == "toggleCompact"){
-    isCompactVersionActive = !isCompactVersionActive;
-    localStorage.setItem("csm_companion_default_mode",isCompactVersionActive);
-    setScriptUI(scriptReceivedCaseData);
-    //adjust position when toggling back to full mode
-    if(!isCompactVersionActive){
-      setTimeout(() => {      
-        var containerStyle = window.getComputedStyle(container);
-        container.style.position = "absolute";
-        defaultTopPosition = container.style.top;
-        localStorage.setItem("csm_companion_default_position",(defaultLeftPosition+","+defaultTopPosition));
-        if ((parseInt(containerStyle.top) + parseInt(containerFullHeigth)) > window.innerHeight){
-          container.style.top = (window.innerHeight - containerFullHeigth)+"px";
-          defaultTopPosition = container.style.top;
-          localStorage.setItem("csm_companion_default_position",(defaultLeftPosition+","+defaultTopPosition));
-        }
-      }, 1100);
-    }else{
-      setTimeout(() => {
-        var containerStyle = window.getComputedStyle(container);
-        container.style.position = "absolute";
-        container.style.top = (parseInt(containerStyle.top) + (containerFullHeigth - containerCompactHeigth))+"px";
-        defaultTopPosition = container.style.top;
-        localStorage.setItem("csm_companion_default_position",(defaultLeftPosition+","+defaultTopPosition));
-        if(parseInt(container.style.top) > (window.innerHeight-containerCompactHeigth)){
-          container.style.top = (window.innerHeight - containerCompactHeigth)+"px";
-          defaultTopPosition = container.style.top;
-          localStorage.setItem("csm_companion_default_position",(defaultLeftPosition+","+defaultTopPosition));
-        }
-        
-      }, 1350);
-    }
-          
-  }else{
-    bounds = container.getBoundingClientRect();
-    relativeMouseX = e.clientX - bounds.left;
-    relativeMouseY = e.clientY - bounds.top;
-    document.addEventListener("mousemove", handleMouseMove);
+  //error message in description
+  if(insightResults[2].toString().trim().toLowerCase() == "true"){
+    pushCsmInsight("It seems that the case description contains a specific error/system message. Please ensure the same is present in the Pulse symptom section","ai");
   }
-  
-});
-
-document.addEventListener("mouseup",()=>{
-  document.removeEventListener("mousemove", handleMouseMove);
-});
+}
 
 //Setting content when case is opened
 ise.case.onUpdate2(
@@ -634,7 +681,8 @@ ise.case.onUpdate2(
       pushCsmInsight("Pulse completion is still suggested for Service Request Cases","pulse");
 
     }else if (customerReplyCount < 3){
-      //TODO: Check if case is a quick hitter (up to 2 infos to the customer), since pulse is not mandatory - perform the checks before this if, assign to a variable and test variable here
+      //Check if case is a quick hitter (up to 2 infos to the customer), since pulse is not mandatory
+      pushCsmInsight("Pulse is still recommended for \"Quick Hitter\" cases (cases with less than 2 infos to customer)","pulse");
       if(!isCompactVersionActive){
         //full version
         var serviceRequestDiv = document.createElement("h4");
@@ -654,7 +702,7 @@ ise.case.onUpdate2(
     else{
 
       //CSM AI INSIGHTS
-      processAiInsights(pulse, receivedCaseData.attachments.data);
+      processAiInsights(pulse, receivedCaseData.attachments.data, receivedCaseData.communication.data.description);
       //CSM PULSE INSIGHTS
       //Pulse last update
       if(pulse != "New"){
@@ -807,7 +855,7 @@ ise.case.onUpdate2(
     //CSM PULSE INSIGHTS
     //How-to redirect
     if(receivedCaseData.headers.data.resolutionError.category == "customer_partner_issue" && (receivedCaseData.headers.data.resolutionError.subcategory == "how_to_request" || receivedCaseData.headers.data.resolutionError.subcategory == "consulting_implementation_request")){
-      pushCsmInsight("Case is eligible for How-To Redirect process according to the current error categorization. Proceed with How-To redirect process.","others")
+      pushCsmInsight("Case is eligible for How-To Redirect process according to the current error categorization. Please proceed with the How-To redirect process.","others")
     }
 
     //Swarming Check
