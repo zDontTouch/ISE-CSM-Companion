@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name     CSM Companion
-// @version  1.6
+// @version  1.7
 // @grant    none
 // @match    *://itsm.services.sap/*
 // @include  *://itsm.services.sap/*
@@ -275,18 +275,61 @@ async function iaRequest(path, method = "GET", body = undefined) {
 
 var defaultLeftPosition;
 var defaultTopPosition;
+var screenWidth = window.innerWidth;
+var screenHeight = window.innerHeight;
+
+//detect screen siz changes
+addEventListener("resize",(e)=>{
+  screenWidth = window.innerWidth;
+  screenHeight = window.innerHeight;
+  adjustPositionAfterResize();
+});
+
 //check existing saved position
 try{
   if(localStorage.getItem("csm_companion_default_position").length > 0){
     defaultLeftPosition = (localStorage.getItem("csm_companion_default_position").split(",")[0]);
     defaultTopPosition = (localStorage.getItem("csm_companion_default_position").split(",")[1]);
+
+    if(defaultLeftPosition.replaceAll("px","").replaceAll("%","") > screenWidth){
+      if(isCompactVersionActive){
+        defaultLeftPosition = screenWidth - containerCompactWidth;
+      }else{
+        defaultLeftPosition = screenWidth - containerFullWidth;
+      }      
+    }
+    if(defaultTopPosition.replaceAll("px","").replaceAll("%","") > screenHeight){
+      if(isCompactVersionActive){
+        defaultTopPosition = screenHeight - containerCompactHeigth;
+      }else{
+        defaultTopPosition = screenHeight - containerFullHeigth;
+      }
+    }
   }else{
     defaultLeftPosition = "3%";
     defaultTopPosition = "52%";
   }
+
 }catch(err){
   defaultLeftPosition = "3%";
   defaultTopPosition = "52%";
+}
+
+function adjustPositionAfterResize(){
+  if(defaultLeftPosition.replaceAll("px","").replaceAll("%","") > screenWidth){
+    if(isCompactVersionActive){
+      defaultLeftPosition = screenWidth - containerCompactWidth;
+    }else{
+      defaultLeftPosition = screenWidth - containerFullWidth;
+    }      
+  }
+  if(defaultTopPosition.replaceAll("px","").replaceAll("%","") > screenHeight){
+    if(isCompactVersionActive){
+      defaultTopPosition = screenHeight - containerCompactHeigth;
+    }else{
+      defaultTopPosition = screenHeight - containerFullHeigth;
+    }
+  }
 }
 
 var isCompactVersionActive;
@@ -315,6 +358,8 @@ var isKbaAttached = false;
 var scriptReceivedCaseData;
 var containerFullHeigth = 400;
 var containerCompactHeigth = 60;
+var containerFullWidth = 250;
+var containerCompactWidth = 330;
 
 //Set CSM Insight add function
 function pushCsmInsight(insight, type){
@@ -386,9 +431,10 @@ function pushCsmInsight(insight, type){
 //create insights list box
 function openCsmInsights(insights){
     let insightsPopup = document.createElement("div");
-    insightsPopup.setAttribute("style","position:absolute; z-index:99; display:block; border-radius:15px; width:800px; heigth:800px; bottom:0%; left:102%; background-color:rgba(0, 0, 0, 0.65); color:white; padding:20px;");
+    insightsPopup.setAttribute("style","cursor:default; position:absolute; z-index:99; display:block; border-radius:15px; width:800px; heigth:800px; bottom:0%; left:102%; background-color:rgba(0, 0, 0, 0.65); color:white; padding:20px;");
     insightsPopup.setAttribute("id", "insightsPopup");
-    insightsPopup.innerHTML = "<button style=\"border: none; display:block; position:absolute; right:5%; width:10px; height:10px; border-radius:28px 28px 0px 0px; background-color:rgba(0, 0, 0, 0.35); color:white;\" id=\"closeInsights\" title=\"Close Insights\">X</button>";
+    insightsPopup.innerHTML = "<button style=\"cursor:pointer; border: none; float:right; display:block; position:absolute; right:5%; width:10px; height:10px; border-radius:28px 28px 0px 0px; background-color:rgba(0, 0, 0, 0.35); color:white;\" id=\"closeInsights\" title=\"Close Insights\">X</button>";
+    insightsPopup.innerHTML += "<small style=\"margin-bottom:0px;\"><h1>CSM Insights</h1></small>"
     insightsPopup.innerHTML += insights;
   if(!isInsightsOpen){
     pulseCheckerDiv.appendChild(insightsPopup);
@@ -422,11 +468,28 @@ function onMouseDrag(movementX, movementY){
   var containerStyle = window.getComputedStyle(container);
   var lefPosition = parseInt(containerStyle.left);
   var topPosition = parseInt(containerStyle.top);
+
   container.style.position = "absolute";
-  container.style.left = (movementX-relativeMouseX)+"px";
-  container.style.top = (movementY-relativeMouseY)+"px";
-  defaultLeftPosition = (movementX-relativeMouseX)+"px";
-  defaultTopPosition = (movementY-relativeMouseY)+"px";
+  if(!isCompactVersionActive){
+    if((movementX-relativeMouseX+containerFullWidth)<=screenWidth){
+      container.style.left = (movementX-relativeMouseX)+"px";
+      defaultLeftPosition = (movementX-relativeMouseX)+"px";
+    }
+    if((movementY-relativeMouseY+containerFullHeigth)<=screenHeight){
+      container.style.top = (movementY-relativeMouseY)+"px";
+      defaultTopPosition = (movementY-relativeMouseY)+"px";
+    }
+  }else{
+    if((movementX-relativeMouseX+containerCompactWidth)<=screenWidth){
+      container.style.left = (movementX-relativeMouseX)+"px";
+      defaultLeftPosition = (movementX-relativeMouseX)+"px";
+    }
+    if((movementY-relativeMouseY+containerCompactHeigth)<=screenHeight){
+      container.style.top = (movementY-relativeMouseY)+"px";
+      defaultTopPosition = (movementY-relativeMouseY)+"px";
+    }
+  }
+
   localStorage.setItem("csm_companion_default_position",(defaultLeftPosition+","+defaultTopPosition));
 }
 
@@ -578,7 +641,7 @@ async function processAiInsights(pulse, attachments, description){
 
   //error message in description
   var decodedDescription = description.replaceAll("&#34;","\"").replaceAll("&#39;","'");
-  aiPrompt+= "||Respond with 'true' or 'false' if the following text has a quoted sentence or error message:"+decodedDescription;
+  aiPrompt+= "||Respond with 'true' or 'false' if the following text has an error message or a sentence between quotes, either single or double:"+decodedDescription;
   var aiAnswer = await triggerAI(aiPrompt);
   var insightResults = aiAnswer.split(",");
 
@@ -628,34 +691,21 @@ ise.case.onUpdate2(
     //Clear any previous data
     //Hide if no case is open
     if(receivedCaseData.types[0] == "nocase"){
-      pulseCheckerDiv.setAttribute("style","display:none;")
+      pulseCheckerDiv.setAttribute("style","display:none;");
+      //closing the case closes the insight append, so we signal it is closed
+      isInsightsOpen = false;
     }else if(!isCompactVersionActive){
       //Full version
       //Minimize button
-      pulseCheckerDiv.innerHTML = "<div style=\"text-align: center; color: white;\"><button style=\"border: none; display:block; width:99%; margin-left:0.5%; height:3%; border-radius:28px 28px 0px 0px; background-color:rgba(0, 0, 0, 0.35); color:white;\" id=\"toggleCompact\" title=\"Compact Version\">⤓</button><h2 style=\"margin-top:4%; margin-bottom:0%;\">CSM Companion</h2><h4 style=\"margin-bottom:4%; margin-top:0%;\">"+receivedCaseData.headers.data.number+"</h4><h3 style=\"margin-bottom:0%;\">Pulse Completion</h3></div>";
-      pulseCheckerDiv.setAttribute("style","display:block; position:absolute; z-index:99 ;top:"+defaultTopPosition+"; left:"+defaultLeftPosition+"; width:250px; height:"+containerFullHeigth+"px; background-color:rgba(0, 0, 0, 0.65); border-radius:25px;");
+      pulseCheckerDiv.innerHTML = "<div style=\"text-align: center; color: white;\"><button style=\"cursor:pointer; border: none; display:block; width:99%; margin-left:0.5%; height:3%; border-radius:28px 28px 0px 0px; background-color:rgba(0, 0, 0, 0.35); color:white;\" id=\"toggleCompact\" title=\"Compact Version\">⤓</button><h2 style=\"margin-top:4%; margin-bottom:0%;\">CSM Companion</h2><h4 style=\"margin-bottom:4%; margin-top:0%;\">"+receivedCaseData.headers.data.number+"</h4><h3 style=\"margin-bottom:0%;\">Pulse Completion</h3></div>";
+      pulseCheckerDiv.setAttribute("style","cursor:move; display:block; position:absolute; z-index:99 ;top:"+defaultTopPosition+"; left:"+defaultLeftPosition+"; width:"+containerFullWidth+"px; height:"+containerFullHeigth+"px; background-color:rgba(0, 0, 0, 0.65); border-radius:25px;");
       pulseCheckerDiv.setAttribute("id","checkerDiv");
     }else{
       //Compact version
-      pulseCheckerDiv.innerHTML = "<div style=\"display:inline-block; vertical-align: baseline; color: white;\"><button style=\"border: none; border-radius:10px 0px 0px 0px; width:20px; height:20px; float:left; margin-right:8px; background-color:rgba(0, 0, 0, 0.35); color:white;\" id=\"toggleCompact\" title=\"Full-Size Version\">⤒</button><h3 style=\"display:inline-block; margin-top:-10%; margin-bottom:4%; margin-left:18%; margin-right:5%;\">CSM Companion</h3></div>";
-      pulseCheckerDiv.setAttribute("style","display:block; position:absolute; z-index:99 ;top:"+defaultTopPosition+"; left:"+defaultLeftPosition+"; width:330px; height:"+containerCompactHeigth+"px; background-color:rgba(0, 0, 0, 0.65); border-radius:10px;");
+      pulseCheckerDiv.innerHTML = "<div style=\"display:inline-block; vertical-align: baseline; color: white;\"><button style=\"cursor:pointer; border: none; border-radius:10px 0px 0px 0px; width:20px; height:20px; float:left; margin-right:8px; background-color:rgba(0, 0, 0, 0.35); color:white;\" id=\"toggleCompact\" title=\"Full-Size Version\">⤒</button><h3 style=\"display:inline-block; margin-top:-10%; margin-bottom:4%; margin-left:18%; margin-right:5%;\">CSM Companion</h3></div>";
+      pulseCheckerDiv.setAttribute("style","cursor:move; display:block; position:absolute; z-index:99 ;top:"+defaultTopPosition+"; left:"+defaultLeftPosition+"; width:"+containerCompactWidth+"px; height:"+containerCompactHeigth+"px; background-color:rgba(0, 0, 0, 0.65); border-radius:10px;");
       pulseCheckerDiv.setAttribute("id","checkerDiv");
     }
-
-    //check if case is still classified as "quick hitter", as the pulse is not required
-    var customerReplyCount = 0;
-    
-      for(var i=(receivedCaseData.communication.data.memos.length-1); i>=0;i--){
-        //Check for the latest reply to the customer
-        try{
-          if(receivedCaseData.communication.data.memos[i].memoType.toLowerCase() == "customer reply"){
-          customerReplyCount++;
-          }
-        }catch(err){
-          
-        }
-      }
-
 
     //If categorization is "service request", pulse is not required
     if(receivedCaseData.headers.data.resolutionError.category == "service_request"){
@@ -680,29 +730,13 @@ ise.case.onUpdate2(
       //Service Request Pulse Completion
       pushCsmInsight("Pulse completion is still suggested for Service Request Cases","pulse");
 
-    }else if (customerReplyCount < 3){
-      //Check if case is a quick hitter (up to 2 infos to the customer), since pulse is not mandatory
-      pushCsmInsight("Pulse is still recommended for \"Quick Hitter\" cases (cases with less than 2 infos to customer)","pulse");
-      if(!isCompactVersionActive){
-        //full version
-        var serviceRequestDiv = document.createElement("h4");
-        serviceRequestDiv.setAttribute("style","text-align: center; color: Khaki; margin: 1%;");
-        serviceRequestDiv.innerHTML = "Pulse Not Yet Required (<abbr title=\"Case is considered a quick hitter, as it has less than 3 customer replies\"> ? </abbr>)";
-        pulseCheckerDiv.appendChild(serviceRequestDiv);
-
-      }else{
-        //compact version
-        var serviceRequestDiv = document.createElement("div");
-        serviceRequestDiv.setAttribute("style","display:inline-block; background-color: Khaki; line-height:38px; vertical-align:-3px; width:25px; height:25px; border-radius:13px;");
-        serviceRequestDiv.setAttribute("title","Case is considered a quick hitter as it has less than 3 customer replies, so Pulse is not yet required");
-        serviceRequestDiv.innerHTML="<h3 style=\"text-align:center; vertical-align:top; color:white;\" title=\"Pulse Status\">P</h3>";
-        pulseCheckerDiv.appendChild(serviceRequestDiv);
-      }
-    } 
-    else{
-
+    }else{
       //CSM AI INSIGHTS
-      processAiInsights(pulse, receivedCaseData.attachments.data, receivedCaseData.communication.data.description);
+      try{
+        processAiInsights(pulse, receivedCaseData.attachments.data, receivedCaseData.communication.data.description);
+      }catch(err){
+
+      }
       //CSM PULSE INSIGHTS
       //Pulse last update
       if(pulse != "New"){
@@ -1069,17 +1103,17 @@ ise.case.onUpdate2(
       csmInsightsDiv.setAttribute("style","text-align: center; color: white; margin-top:-1%;");
       if(pulseCsmInsights.length>0 || kbaCsmInsights.length>0 || otherCsmInsights.length>0 || aiCsmInsights.length>0){
         //if pulse is showing as not required, the position of the Insights buttons is shifted up. This reajusts the position of the notification circle
-        var insightNotificationTopPositionOffset = (customerReplyCount<3 || receivedCaseData.headers.data.resolutionError.category == "service_request")?"310px;":"355px;";
-        csmInsightsDiv.innerHTML = "<button style=\"align-items: center; padding: 6px 30px; border-radius: 3px; border: none; background: rgb(20, 125, 237); box-shadow: 0px 0.5px 1px rgba(0, 0, 0, 0.1); color: #DFDEDF;\" id=\"insights\"><h3 style=\"margin:0%; padding:0%;\" id=\"insightsText\">🛈 CSM Insights 🛈</h3><div style=\"width:16px; heigth:20px; border-radius:12px; background-color:red; position:absolute; top:"+insightNotificationTopPositionOffset+" left:205px; padding:2px;\">+</div></button>";
+        var insightNotificationTopPositionOffset = (receivedCaseData.headers.data.resolutionError.category == "service_request")?"310px;":"355px;";
+        csmInsightsDiv.innerHTML = "<button style=\"cursor:pointer; align-items: center; padding: 6px 30px; border-radius: 3px; border: none; background: rgb(20, 125, 237); box-shadow: 0px 0.5px 1px rgba(0, 0, 0, 0.1); color: #DFDEDF;\" id=\"insights\"><h3 style=\"margin:0%; padding:0%;\" id=\"insightsText\">🛈 CSM Insights 🛈</h3><div style=\"width:16px; heigth:20px; border-radius:12px; background-color:red; position:absolute; top:"+insightNotificationTopPositionOffset+" left:205px; padding:2px;\">+</div></button>";
       }else{
         csmInsightsDiv.innerHTML = "<button style=\"align-items: center; padding: 6px 30px; border-radius: 3px; border: none; background: rgb(178, 179, 182); box-shadow: 0px 0.5px 1px rgba(0, 0, 0, 0.1); color: #DFDEDF;\" id=\"insights\"><h3 style=\"margin:0%; padding:0%;\" id=\"insightsText\">🛈 CSM Insights 🛈</h3></button>";
       } 
     }else{
       //Compact Version
       csmInsightsDiv.setAttribute("style","margin-left:10px; margin-top: -6px; vertical-align:middle; display:inline-block;");
-      csmInsightsDiv.setAttribute("title","KCS Insights");
+      csmInsightsDiv.setAttribute("title","CSM Insights");
       if(pulseCsmInsights.length>0 || kbaCsmInsights.length>0 || otherCsmInsights.length>0 || aiCsmInsights.length>0){
-        csmInsightsDiv.innerHTML = "<button style=\"align-items: center; vertical-align:top; margin-top:0px; padding: 6px 10px; border-radius: 20px; border: none; background: rgb(20, 125, 237); box-shadow: 0px 0.5px 1px rgba(0, 0, 0, 0.1); color: #DFDEDF;\" id=\"insights\" title=\"KCS Insights\"><h3 title=\"KCS Insights\" style=\"margin:0%; padding:0%;\" id=\"insightsText\">🛈</h3><div style=\"width:16px; heigth:10px; border-radius:12px; background-color:red; position:absolute; top:4px; left:300px; padding:2px;\">+</div></button>";
+        csmInsightsDiv.innerHTML = "<button style=\"cursor:pointer; align-items: center; vertical-align:top; margin-top:0px; padding: 6px 10px; border-radius: 20px; border: none; background: rgb(20, 125, 237); box-shadow: 0px 0.5px 1px rgba(0, 0, 0, 0.1); color: #DFDEDF;\" id=\"insights\" title=\"CSM Insights\"><h3 title=\"KCS Insights\" style=\"margin:0%; padding:0%;\" id=\"insightsText\">🛈</h3><div style=\"width:16px; heigth:10px; border-radius:12px; background-color:red; position:absolute; top:4px; left:300px; padding:2px;\">+</div></button>";
       }else{
         csmInsightsDiv.innerHTML = "<button style=\"align-items: center; vertical-align:top; margin-top:0px; padding: 6px 10px; border-radius: 20px; border: none; background: rgb(178, 179, 182); box-shadow: 0px 0.5px 1px rgba(0, 0, 0, 0.1); color: #DFDEDF;\" id=\"insights\"><h3 style=\"margin:0%; padding:0%;\" id=\"insightsText\">🛈</h3></button>";
       }
