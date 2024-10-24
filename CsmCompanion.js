@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name     CSM Companion
-// @version  1.7
+// @version  1.1
 // @grant    none
 // @match    *://itsm.services.sap/*
 // @include  *://itsm.services.sap/*
@@ -273,76 +273,8 @@ async function iaRequest(path, method = "GET", body = undefined) {
 
 /*****************************************************************************************************/
 
-var defaultLeftPosition;
-var defaultTopPosition;
-var screenWidth = window.innerWidth;
-var screenHeight = window.innerHeight;
-
-//detect screen siz changes
-addEventListener("resize",(e)=>{
-  screenWidth = window.innerWidth;
-  screenHeight = window.innerHeight;
-  adjustPositionAfterResize();
-});
-
-//check existing saved position
-try{
-  if(localStorage.getItem("csm_companion_default_position").length > 0){
-    defaultLeftPosition = (localStorage.getItem("csm_companion_default_position").split(",")[0]);
-    defaultTopPosition = (localStorage.getItem("csm_companion_default_position").split(",")[1]);
-
-    if(defaultLeftPosition.replaceAll("px","").replaceAll("%","") > screenWidth){
-      if(isCompactVersionActive){
-        defaultLeftPosition = screenWidth - containerCompactWidth;
-      }else{
-        defaultLeftPosition = screenWidth - containerFullWidth;
-      }      
-    }
-    if(defaultTopPosition.replaceAll("px","").replaceAll("%","") > screenHeight){
-      if(isCompactVersionActive){
-        defaultTopPosition = screenHeight - containerCompactHeigth;
-      }else{
-        defaultTopPosition = screenHeight - containerFullHeigth;
-      }
-    }
-  }else{
-    defaultLeftPosition = "3%";
-    defaultTopPosition = "52%";
-  }
-
-}catch(err){
-  defaultLeftPosition = "3%";
-  defaultTopPosition = "52%";
-}
-
-function adjustPositionAfterResize(){
-  if(defaultLeftPosition.replaceAll("px","").replaceAll("%","") > screenWidth){
-    if(isCompactVersionActive){
-      defaultLeftPosition = screenWidth - containerCompactWidth;
-    }else{
-      defaultLeftPosition = screenWidth - containerFullWidth;
-    }      
-  }
-  if(defaultTopPosition.replaceAll("px","").replaceAll("%","") > screenHeight){
-    if(isCompactVersionActive){
-      defaultTopPosition = screenHeight - containerCompactHeigth;
-    }else{
-      defaultTopPosition = screenHeight - containerFullHeigth;
-    }
-  }
-}
-
-var isCompactVersionActive;
-//check existing saved mode
-try{
-  if(localStorage.getItem("csm_companion_default_mode") != null){
-    isCompactVersionActive = (localStorage.getItem("csm_companion_default_mode") === "true");
-  }else{
-    isCompactVersionActive = false;
-  }
-}catch(err){
-  isCompactVersionActive = false;
-}
+var defaultLeftPosition = "3%";
+var defaultTopPosition = "52%";
 var pulseCheckerDiv = document.createElement("div");
 pulseCheckerDiv.setAttribute("id","checkerDiv");
 document.body.appendChild(pulseCheckerDiv);
@@ -350,114 +282,31 @@ var pulseData = "";
 var kcsCategorizeComplete = false;
 var kcsInvestigateComplete = false;
 var kcsCategorizationComplete = false;
-var pulseCsmInsights = [];
-var kbaCsmInsights = [];
-var otherCsmInsights = [];
-var aiCsmInsights = [];
+var csmInsights = [];
 var isKbaAttached = false;
+var isCompactVersionActive = false;
 var scriptReceivedCaseData;
-var containerFullHeigth = 400;
-var containerCompactHeigth = 60;
-var containerFullWidth = 250;
-var containerCompactWidth = 330;
 
 //Set CSM Insight add function
-function pushCsmInsight(insight, type){
-
-  switch (type){
-    case "pulse":
-      if(pulseCsmInsights.length == 0){
-        pulseCsmInsights.push("• "+insight);
-      }else{
-        var insightExists = false;
-        for(var i=0; i<pulseCsmInsights.length;i++){
-          if(pulseCsmInsights[i].indexOf(insight)>=0){
-            insightExists = true;
-          }
-        }
-        if(!insightExists){
-          pulseCsmInsights.push("• "+insight);
-        }
-      }
-      break;
-    case "kba":
-      if(kbaCsmInsights.length == 0){
-        kbaCsmInsights.push("• "+insight);
-      }else{
-        var insightExists = false;
-        for(var i=0; i<kbaCsmInsights.length;i++){
-          if(kbaCsmInsights[i].indexOf(insight)>=0){
-            insightExists = true;
-          }
-        }
-        if(!insightExists){
-          kbaCsmInsights.push("• "+insight);
-        }
-      }
-      break;
-    case "others":
-      if(otherCsmInsights.length == 0){
-        otherCsmInsights.push("• "+insight);
-      }else{
-        var insightExists = false;
-        for(var i=0; i<otherCsmInsights.length;i++){
-          if(otherCsmInsights[i].indexOf(insight)>=0){
-            insightExists = true;
-          }
-        }
-        if(!insightExists){
-          otherCsmInsights.push("• "+insight);
-        }
-      }
-      break;
-    case "ai":
-      if(aiCsmInsights.length == 0){
-        aiCsmInsights.push("• "+insight);
-      }else{
-        var insightExists = false;
-        for(var i=0; i<aiCsmInsights.length;i++){
-          if(aiCsmInsights[i].indexOf(insight)>=0){
-            insightExists = true;
-          }
-        }
-        if(!insightExists){
-          aiCsmInsights.push("• "+insight);
-        }
-      }
-      break;
-  }
-}
-
-//create insights list box
-function openCsmInsights(insights){
-    let insightsPopup = document.createElement("div");
-    insightsPopup.setAttribute("style","cursor:default; position:absolute; z-index:99; display:block; border-radius:15px; width:800px; heigth:800px; bottom:0%; left:102%; background-color:rgba(0, 0, 0, 0.65); color:white; padding:20px;");
-    insightsPopup.setAttribute("id", "insightsPopup");
-    insightsPopup.innerHTML = "<button style=\"cursor:pointer; border: none; float:right; display:block; position:absolute; right:5%; width:10px; height:10px; border-radius:28px 28px 0px 0px; background-color:rgba(0, 0, 0, 0.35); color:white;\" id=\"closeInsights\" title=\"Close Insights\">X</button>";
-    insightsPopup.innerHTML += "<small style=\"margin-bottom:0px;\"><h1>CSM Insights</h1></small>"
-    insightsPopup.innerHTML += insights;
-  if(!isInsightsOpen){
-    pulseCheckerDiv.appendChild(insightsPopup);
-    isInsightsOpen = true;
+function pushCsmInsight(insight){
+  if(csmInsights.length==0){
+    csmInsights.push("• "+insight);
   }else{
-    try{
-      document.getElementById("checkerDiv").removeChild(document.getElementById("insightsPopup"));
-    }catch(err){
-      //element may already be removed due to toggling full/compact modes
-      isInsightsOpen = false
+    var insightExists = false;
+    for(var i=0;i<csmInsights.length;i++){
+      //only push if the insight is not yet added
+      if(csmInsights[i].indexOf(insight)>=0){
+        insightExists = true;
+      }
     }
-    isInsightsOpen = false;
+    if(!insightExists){
+      csmInsights.push("• "+insight);
+    }
   }
-  
 }
 
 //Set draggable box
 var container = document.getElementById("checkerDiv");
-var initialMousePosition = [];
-var bounds;
-var relativeMouseX;
-var relativeMouseY; 
-var isInsightsOpen = false;
 
 function handleMouseMove(event){
   event.preventDefault();
@@ -466,101 +315,36 @@ function handleMouseMove(event){
 
 function onMouseDrag(movementX, movementY){
   var containerStyle = window.getComputedStyle(container);
-  var lefPosition = parseInt(containerStyle.left);
+  var leftPosition = parseInt(containerStyle.left);
   var topPosition = parseInt(containerStyle.top);
-
   container.style.position = "absolute";
-  if(!isCompactVersionActive){
-    if((movementX-relativeMouseX+containerFullWidth)<=screenWidth){
-      container.style.left = (movementX-relativeMouseX)+"px";
-      defaultLeftPosition = (movementX-relativeMouseX)+"px";
-    }
-    if((movementY-relativeMouseY+containerFullHeigth)<=screenHeight){
-      container.style.top = (movementY-relativeMouseY)+"px";
-      defaultTopPosition = (movementY-relativeMouseY)+"px";
-    }
-  }else{
-    if((movementX-relativeMouseX+containerCompactWidth)<=screenWidth){
-      container.style.left = (movementX-relativeMouseX)+"px";
-      defaultLeftPosition = (movementX-relativeMouseX)+"px";
-    }
-    if((movementY-relativeMouseY+containerCompactHeigth)<=screenHeight){
-      container.style.top = (movementY-relativeMouseY)+"px";
-      defaultTopPosition = (movementY-relativeMouseY)+"px";
-    }
-  }
-
-  localStorage.setItem("csm_companion_default_position",(defaultLeftPosition+","+defaultTopPosition));
+  container.style.left = movementX+"px";
+  container.style.top = movementY+"px";
+  defaultLeftPosition = movementX+"px";
+  defaultTopPosition = movementY+"px";
 }
 
 container.addEventListener("mousedown", (e)=>{
   if(e.target.id == "insights" || e.target.id == "insightsText"){
-
-    if(pulseCsmInsights.length>0 || kbaCsmInsights.length>0 || otherCsmInsights.length>0 || aiCsmInsights.length>0){
-      var insightString = "<big>";
-      if(pulseCsmInsights.length>0){
-        insightString = insightString + "<b>PULSE</b><br>";
-        insightString = insightString + (pulseCsmInsights.join("<br>")) + "<br><br>";
-      }
-      if(kbaCsmInsights.length>0){
-        insightString = insightString + "<b>KBA</b><br>";
-        insightString = insightString + (kbaCsmInsights.join("<br>")) + "<br><br>";
-      }
-      if(aiCsmInsights.length>0){
-        insightString = insightString + "<b>AI (experimental)</b><br>";
-        insightString = insightString + (aiCsmInsights.join("<br>")) + "<br><br>";
-      }
-      if(otherCsmInsights.length>0){
-        insightString = insightString + "<b>OTHERS</b><br>";
-        insightString = insightString + (otherCsmInsights.join("<br>"));
-      }
-      insightString+="</big>"
-      //alert("<b>CSM Insights (Beta)</b><br><br>"+insightString+"</small>");
-      openCsmInsights(insightString);
+    if(csmInsights.length>0){
+      alert("CSM Insights (Beta)<br><br>"+csmInsights.join("<br><br>"));
     }else{
-      //alert("No CSM Insights :)");
+      alert("No CSM Insights :)");
     }
   }else if(e.target.id == "toggleCompact"){
     isCompactVersionActive = !isCompactVersionActive;
-    localStorage.setItem("csm_companion_default_mode",isCompactVersionActive);
     setScriptUI(scriptReceivedCaseData);
-    //toggling modes closes the insight append, so we signal it is closed
-    isInsightsOpen = false;
     //adjust position when toggling back to full mode
-    if(!isCompactVersionActive){
-      setTimeout(() => {      
+    /*setTimeout(() => {
+      if(!isCompactVersionActive){
         var containerStyle = window.getComputedStyle(container);
         container.style.position = "absolute";
-        defaultTopPosition = container.style.top;
-        localStorage.setItem("csm_companion_default_position",(defaultLeftPosition+","+defaultTopPosition));
-        if ((parseInt(containerStyle.top) + parseInt(containerFullHeigth)) > window.innerHeight){
-          container.style.top = (window.innerHeight - containerFullHeigth)+"px";
-          defaultTopPosition = container.style.top;
-          localStorage.setItem("csm_companion_default_position",(defaultLeftPosition+","+defaultTopPosition));
-        }
-      }, 1100);
-    }else{
-      setTimeout(() => {
-        var containerStyle = window.getComputedStyle(container);
-        container.style.position = "absolute";
-        container.style.top = (parseInt(containerStyle.top) + (containerFullHeigth - containerCompactHeigth))+"px";
-        defaultTopPosition = container.style.top;
-        localStorage.setItem("csm_companion_default_position",(defaultLeftPosition+","+defaultTopPosition));
-        if(parseInt(container.style.top) > (window.innerHeight-containerCompactHeigth)){
-          container.style.top = (window.innerHeight - containerCompactHeigth)+"px";
-          defaultTopPosition = container.style.top;
-          localStorage.setItem("csm_companion_default_position",(defaultLeftPosition+","+defaultTopPosition));
-        }
-        
-      }, 1350);
-    }
-          
-  }else if(e.target.id == "closeInsights"){
-    openCsmInsights(insightString);
+        container.style.top = ((container.style.top.split("p")[0])-360)+"px";
+        //TODO: if position + 360 > screen height, set position to screen height - 400
+      }
+    }, 1100);*/
+    
   }else{
-    bounds = container.getBoundingClientRect();
-    relativeMouseX = e.clientX - bounds.left;
-    relativeMouseY = e.clientY - bounds.top;
     document.addEventListener("mousemove", handleMouseMove);
   }
   
@@ -570,97 +354,6 @@ document.addEventListener("mouseup",()=>{
   document.removeEventListener("mousemove", handleMouseMove);
 });
 
-
-
-///////////////////////////////////////////////////////////////////////////////////////////////
-//                             CSM AI INSIGHTS - EXPERIMENTAL                                //
-///////////////////////////////////////////////////////////////////////////////////////////////
-
-async function triggerAI(prompt){
-    var aiResponse;
-    try {
-      const args = {
-        model: "llm_service_model",
-        parameters: {
-          deployment_id: "gpt-4-32k",
-          messages: [
-            {
-              role: "user",
-              content: prompt,
-            },
-          ],
-          max_tokens: 2500,
-          temperature: 0.0,
-          frequency_penalty: 0,
-          presence_penalty: 0,
-          stop: "null",
-        },
-      };
-  
-      const res = await ise.ai.request(args);
-      if (res.error) throw res.error;
-  
-      aiResponse = res.choices[0].message.content;
-    } catch (error) {
-      aiResponse = "AI is currently unavailable, please try again later";
-    }
-    return aiResponse;
-}
-
-async function processAiInsights(pulse, attachments, description){
-  //initial prompt
-  var aiPrompt = "Respond the following series of queries in the sequence, which are separated by ||, separating the answers with a comma:";
-  //numbered steps
-  if(trimPulseField(pulse.steps_to_reproduce).length>2 && trimPulseField(pulse.steps_to_reproduce).toLowerCase()!= "n/a"){
-      //if the numbering is done through Case Assistant, it comes as <li> instead of a numbered list, so we force a replace to "1." since it is a numbered list
-      if(trimPulseField(pulse.steps_to_reproduce).indexOf("<li>") >= 0){
-        aiPrompt += "Respond with 'true' or 'false' if the following text contains at least one numbered step:"+trimPulseField(pulse.steps_to_reproduce).replaceAll("<li>","1.");
-      }else{
-        aiPrompt += "Respond with 'true' or 'false' if the following text contains at least one numbered step:"+trimPulseField(pulse.steps_to_reproduce);
-      }
-    
-  }else{
-    //dummy prompt to force a 'true' and not push insight
-    aiPrompt += "1 plus 1 equals 2";
-  }
-  //attachments in data collected
-  let attachmentCount = 0;
-  //Count all attachments (except IncidentContext.zip)
-  for(const a of Object.values(attachments)){
-    if(a.filename.toLowerCase() != "incidentcontext.zip"){
-      attachmentCount++;
-    }
-  }
-  //If there is any attachment added, try to check if they are mentioned in pulse
-  if(attachmentCount > 0){
-    aiPrompt += "||Imagine that you are an SAP support engineer, and you are reading the analysis of a support case made by a colleague. Respond with 'true' or 'false' if the following text from the analysis contains any mention of a document or screenshot or image that was attached or is an attachment:"+trimPulseField(pulse.data_collected);
-  }else{
-    //dummy prompt to force a 'true' and not push insight
-    aiPrompt += "|| 1 plus 1 equals 2";
-  }
-
-  //error message in description
-  var decodedDescription = description.replaceAll("&#34;","\"").replaceAll("&#39;","'");
-  aiPrompt+= "||Respond with 'true' or 'false' if the following text has an error message or a sentence between quotes, either single or double:"+decodedDescription;
-  var aiAnswer = await triggerAI(aiPrompt);
-  var insightResults = aiAnswer.split(",");
-
-  //pulse numbered steps
-  if(insightResults[0].toLowerCase() == "false"){
-    pushCsmInsight("It seems that the steps to reproduce in the Pulse summary are not numbered. It is recommended to number the list of steps taken","ai");
-  }
-
-  //attachment mentioned in data collected
-  if(insightResults[1].toString().trim().toLowerCase() == "false"){
-    pushCsmInsight("It seems that there is at least one attachment in this case. Please ensure that the same is mentioned in the Pulse summary.","ai");
-  }
-
-  //error message in description
-  if(insightResults[2].toString().trim().toLowerCase() == "true"){
-    pushCsmInsight("It seems that the case description contains a specific error/system message. Please ensure the same is present in the Pulse symptom section","ai");
-  }
-}
-
 //Setting content when case is opened
 ise.case.onUpdate2(
     async (receivedCaseData) => {
@@ -668,9 +361,8 @@ ise.case.onUpdate2(
         if(receivedCaseData.types[0] == "knowledgematches"){
           //TODO: kba suggestion insights
         }else{
-            scriptReceivedCaseData = receivedCaseData;
-            pulseCheckerDiv.innerHTML = "";
-            setScriptUI(receivedCaseData);
+        scriptReceivedCaseData = receivedCaseData;
+        setScriptUI(receivedCaseData);
         }
       }
       
@@ -681,33 +373,29 @@ ise.case.onUpdate2(
   //Function to set all the UI when case data is received. This is set in a separated function so it can be called to toggle between full and compact versions
   function setScriptUI(receivedCaseData){
     //clear any previous data
-    pulseCsmInsights = [];
-    otherCsmInsights = [];
-    kbaCsmInsights = [];
-    aiCsmInsights = [];
-
+    csmInsights = [];
+        
     //when a case is open, query the Pulse data
-    pulseData = API.Pulse.get(receivedCaseData.id).then(async(pulse)=>{
+    pulseData = API.Pulse.get(receivedCaseData.id).then((pulse)=>{
     //Clear any previous data
     //Hide if no case is open
     if(receivedCaseData.types[0] == "nocase"){
-      pulseCheckerDiv.setAttribute("style","display:none;");
-      //closing the case closes the insight append, so we signal it is closed
-      isInsightsOpen = false;
+      pulseCheckerDiv.setAttribute("style","display:none;")
     }else if(!isCompactVersionActive){
       //Full version
       //Minimize button
-      pulseCheckerDiv.innerHTML = "<div style=\"text-align: center; color: white;\"><button style=\"cursor:pointer; border: none; display:block; width:99%; margin-left:0.5%; height:3%; border-radius:28px 28px 0px 0px; background-color:rgba(0, 0, 0, 0.35); color:white;\" id=\"toggleCompact\" title=\"Compact Version\">⤓</button><h2 style=\"margin-top:4%; margin-bottom:0%;\">CSM Companion</h2><h4 style=\"margin-bottom:4%; margin-top:0%;\">"+receivedCaseData.headers.data.number+"</h4><h3 style=\"margin-bottom:0%;\">Pulse Completion</h3></div>";
-      pulseCheckerDiv.setAttribute("style","cursor:move; display:block; position:absolute; z-index:99 ;top:"+defaultTopPosition+"; left:"+defaultLeftPosition+"; width:"+containerFullWidth+"px; height:"+containerFullHeigth+"px; background-color:rgba(0, 0, 0, 0.65); border-radius:25px;");
+      pulseCheckerDiv.innerHTML = "<div style=\"text-align: center; color: white;\"><button style=\"border: none; display:block; width:99%; margin-left:0.5%; height:3%; border-radius:28px 28px 0px 0px; background-color:rgba(0, 0, 0, 0.35); color:white;\" id=\"toggleCompact\" title=\"Compact Version\">⤓</button><h2 style=\"margin-top:4%; margin-bottom:0%;\">CSM Companion</h2><h4 style=\"margin-bottom:4%; margin-top:0%;\">"+receivedCaseData.headers.data.number+"</h4><h3 style=\"margin-bottom:0%;\">Pulse Completion</h3></div>";
+      pulseCheckerDiv.setAttribute("style","display:block; position:absolute; z-index:99 ;top:"+defaultTopPosition+"; left:"+defaultLeftPosition+"; width:250px; height:400px; background-color:rgba(0, 0, 0, 0.65); border-radius:25px;");
       pulseCheckerDiv.setAttribute("id","checkerDiv");
     }else{
       //Compact version
-      pulseCheckerDiv.innerHTML = "<div style=\"display:inline-block; vertical-align: baseline; color: white;\"><button style=\"cursor:pointer; border: none; border-radius:10px 0px 0px 0px; width:20px; height:20px; float:left; margin-right:8px; background-color:rgba(0, 0, 0, 0.35); color:white;\" id=\"toggleCompact\" title=\"Full-Size Version\">⤒</button><h3 style=\"display:inline-block; margin-top:-10%; margin-bottom:4%; margin-left:18%; margin-right:5%;\">CSM Companion</h3></div>";
-      pulseCheckerDiv.setAttribute("style","cursor:move; display:block; position:absolute; z-index:99 ;top:"+defaultTopPosition+"; left:"+defaultLeftPosition+"; width:"+containerCompactWidth+"px; height:"+containerCompactHeigth+"px; background-color:rgba(0, 0, 0, 0.65); border-radius:10px;");
+      pulseCheckerDiv.innerHTML = "<div style=\"display:inline-block; vertical-align: baseline; color: white;\"><button style=\"border: none; border-radius:10px 0px 0px 0px; width:20px; height:20px; float:left; margin-right:8px; background-color:rgba(0, 0, 0, 0.35); color:white;\" id=\"toggleCompact\" title=\"Full-Size Version\">⤒</button><h3 style=\"display:inline-block; margin-top:-10%; margin-bottom:4%; margin-left:18%; margin-right:5%;\">CSM Companion</h3></div>";
+      pulseCheckerDiv.setAttribute("style","display:block; position:absolute; z-index:99 ;top:"+defaultTopPosition+"; left:"+defaultLeftPosition+"; width:320px; height:60px; background-color:rgba(0, 0, 0, 0.65); border-radius:10px;");
       pulseCheckerDiv.setAttribute("id","checkerDiv");
     }
 
     //If categorization is "service request", pulse is not required
+
     if(receivedCaseData.headers.data.resolutionError.category == "service_request"){
       kcsCategorizeComplete = true;
       kcsInvestigateComplete = true;
@@ -728,15 +416,10 @@ ise.case.onUpdate2(
 
       //CSM PULSE INSIGHTS
       //Service Request Pulse Completion
-      pushCsmInsight("Pulse completion is still suggested for Service Request Cases","pulse");
+      pushCsmInsight("Pulse completion is still suggested for Service Request Cases");
 
     }else{
-      //CSM AI INSIGHTS
-      try{
-        processAiInsights(pulse, receivedCaseData.attachments.data, receivedCaseData.communication.data.description);
-      }catch(err){
 
-      }
       //CSM PULSE INSIGHTS
       //Pulse last update
       if(pulse != "New"){
@@ -745,17 +428,17 @@ ise.case.onUpdate2(
         //Calculate difference in ms then convert to hours   
         var updateTimeDifference = Math.abs(((updateDate.getTime() - currentDate.getTime())/(1000*60*60))); 
         if(updateTimeDifference >= 48){
-          pushCsmInsight("Pulse has not been updated in the last 48 hours. Check if the existing pulse can be improved with new info.","pulse");
+          pushCsmInsight("Pulse has not been updated in the last 48 hours. Check if the existing pulse can be improved with new info.");
         }
         //Pulse update user (disconsider when pulse change comes from Case Assistant)
         if(receivedCaseData.headers.data.processor != pulse.sys_updated_by && pulse.sys_updated_by!= "INT_ISE2SN"){
-          pushCsmInsight("Pulse was last updated by a different user. Check if the existing pulse can be improved with new info.","pulse");
+          pushCsmInsight("Pulse was last updated by a different user. Check if the existing pulse can be improved with new info.");
         }
         //Check Pulse mandatory fields
         verifyCategorizeSection(pulse);
         verifyInvestigateSection(pulse);
         if(!kcsCategorizeComplete || !kcsInvestigateComplete){
-          pushCsmInsight("For Pulse completion, it is mandatory to complete at least the Symptom and either Data Collected, Research or Research (Internal)","pulse");
+          pushCsmInsight("For Pulse completion, it is mandatory to complete at least the Symptom and either Data Collected, Research or Research (Internal)");
         }
       }
 
@@ -886,10 +569,10 @@ ise.case.onUpdate2(
 
     }
 
-    //CSM PULSE INSIGHTS
+    //PULSE INSIGHTS
     //How-to redirect
     if(receivedCaseData.headers.data.resolutionError.category == "customer_partner_issue" && (receivedCaseData.headers.data.resolutionError.subcategory == "how_to_request" || receivedCaseData.headers.data.resolutionError.subcategory == "consulting_implementation_request")){
-      pushCsmInsight("Case is eligible for How-To Redirect process according to the current error categorization. Please proceed with the How-To redirect process.","others")
+      pushCsmInsight("Case is eligible for How-To Redirect process according to the current error categorization. Proceed with How-To redirect process.")
     }
 
     //Swarming Check
@@ -944,156 +627,81 @@ ise.case.onUpdate2(
   var pulseUpdateDate = new Date(pulse.sys_updated_on+" UTC");
   var replyDate = new Date(lastCustomerResponseTime+" UTC");
   if(replyDate > pulseUpdateDate){
-    pushCsmInsight("Pulse was not yet updated after the latest customer note. Please check whether the Pulse analysis can be improved.","pulse");
+    pushCsmInsight("Pulse was not yet updated after the latest customer note. Please check whether the Pulse analysis can be improved.");
   }
 
   //CSM INCIDENT INSIGHTS - Check if pulse was updated after incident update
-  var lastIncidentResponsetime;
-  for(var i=(receivedCaseData.communication.data.memos.length-1); i>=0;i--){
-    if(receivedCaseData.communication.data.memos[i].type == "u_work_notes_incident"){
-      if(receivedCaseData.communication.data.memos[i].text.toString().toLowerCase().indexOf(" resolution category: ")>=0){
-        lastIncidentResponsetime = receivedCaseData.communication.data.memos[i].Timestamp;
-        break;
-      }
-    }
-  }
-  var incidentDate = new Date(lastIncidentResponsetime+" UTC");
-  if(incidentDate > pulseUpdateDate){
-    pushCsmInsight("Pulse was not yet updated after the latest resolution on the associated incident. Please check if Pulse can be improved.","pulse");
-  }
 
   //CSM KBA INSIGHTS - check if the last KBA was attached more than 5 days ago
   var lastKbaAdded;
-  try{
-    for(var i=(receivedCaseData.communication.data.memos.length-1); i>=0;i--){
-      //Check for the latest reply from customer
-      if(receivedCaseData.communication.data.memos[i].text.toString().toLowerCase().indexOf(" has been attached - ")>=0){
-        lastKbaAdded = receivedCaseData.communication.data.memos[i].Timestamp;
-        break;
-      }
+  for(var i=(receivedCaseData.communication.data.memos.length-1); i>=0;i--){
+    //Check for the latest reply from customer
+    if(receivedCaseData.communication.data.memos[i].text.toString().toLowerCase().indexOf(" has been attached - ")>=0){
+      lastKbaAdded = receivedCaseData.communication.data.memos[i].Timestamp;
+      break;
     }
-    var lastKbaDate = new Date(lastKbaAdded+" UTC");
-    var currentDate = new Date();
-    //Calculate difference in ms then convert to hours   
-    var updateTimeDifference = Math.abs(((lastKbaDate.getTime() - currentDate.getTime())/(1000*60*60)));
-    if(updateTimeDifference > 120){
-      pushCsmInsight("No KBA has been attached in the last 5 days. Please check whether all relevant KBAs are attached.","kba");
-    }
-  }catch(err){ 
-    //exception triggered when there is a corrupt memo coming from SNow
+  }
+  var lastKbaDate = new Date(lastKbaAdded+" UTC");
+  var currentDate = new Date();
+  //Calculate difference in ms then convert to hours   
+  var updateTimeDifference = Math.abs(((lastKbaDate.getTime() - currentDate.getTime())/(1000*60*60)));
+  if(updateTimeDifference > 120){
+    pushCsmInsight("No KBA has been attached in the last 5 days. Please check whether all relevant KBAs are attached.");
   }
 
-  //CSM KBA INSIGHTS - Check if any KBA is attached to the case
+  //Check if KBA is attached by going through case memos
   //CSM KBA INSIGHTS - check if there are any currently attached KBAs by the processor
-  //CSM KBA INSIGHTS - check if KBA attached to the case is mentioned in the pulse
   let kbaAddBalace = 0;
   let processorKbaAddBalance = 0;
-  let kbasAttached = [];
   //count KBAs added and KBAs removed, then compare the numbers to check if a KBA is attached
-  try{
-    for(let i=0; i<receivedCaseData.communication.data.memos.length;i++){
-      if(receivedCaseData.communication.data.memos[i].text.toString().toLowerCase().indexOf(" has been attached - ")>=0){
-        kbaAddBalace++;
-        //the author of a case note (such as KBA add notes) comes as "name (i-user)", so we split twice to get only the i-user and compare to the processor
-        try{
-          if((receivedCaseData.communication.data.memos[i].userName.split("(")[1].split(")")[0]) == receivedCaseData.headers.data.processor){
-            processorKbaAddBalance++;
-          }        
-          //collect the KBA ID (splitting the html reveals the numeric KBA ID, which can be searched in pulse. Splitting by " leaves the ID on index 3)
-          //exclude bridge KBAs
-          if(["2531750","2576522","2537493","2531712","2973358","2537448","2543549","2531826","2543587","2531827","2531921","2531650","2531747","2528300","2541693","2541754","2532334","2532326","2531828","2527097","3488027","2531864","2572475","2532347"].indexOf(receivedCaseData.communication.data.memos[i].html.split('\"')[3].slice(3))<0){
-            kbasAttached.push(receivedCaseData.communication.data.memos[i].html.split('\"')[3]);
-          }
-        }catch(err){
-          //SNow does not include the KBA name in the memo when the KBA is created from that case (memo appears as "Knowledge Article XYZ has been attached - 0 -")
-          //This catch avoids an exception that breaks the rest of the execution
-        } 
-        
-      }else if(receivedCaseData.communication.data.memos[i].text.toString().toLowerCase().indexOf(" has been removed.")>=0){
-        kbaAddBalace--;
-        try{
-          if((receivedCaseData.communication.data.memos[i].userName.split("(")[1].split(")")[0]) == receivedCaseData.headers.data.processor){
-            processorKbaAddBalance--;
-          }
-          //collect the KBA ID and remove it from the added KBA IDs array
-          kbasAttached = kbasAttached.filter(e => e != receivedCaseData.communication.data.memos[i].html.split('\"')[3]);
-        }catch(err){
-          //SNow does not include the KBA name in the memo when the KBA is created from that case (memo appears as "Knowledge Article XYZ has been attached - 0 -")
-          //This catch avoids an exception that breaks the rest of the execution
-        }
-
+  for(let i=0; i<receivedCaseData.communication.data.memos.length;i++){
+    if(receivedCaseData.communication.data.memos[i].text.toString().toLowerCase().indexOf(" has been attached - ")>=0){
+      kbaAddBalace++;
+      //the author of a case note (such as KBA add notes) comes as "name (i-user)", so we split twice to get only the i-user and compare to the processor
+      if((receivedCaseData.communication.data.memos[i].userName.split("(")[1].split(")")[0]) == receivedCaseData.headers.data.processor){
+        processorKbaAddBalance++;
+      }
+    }else if(receivedCaseData.communication.data.memos[i].text.toString().toLowerCase().indexOf(" has been removed.")>=0){
+      kbaAddBalace--;
+      if((receivedCaseData.communication.data.memos[i].userName.split("(")[1].split(")")[0]) == receivedCaseData.headers.data.processor){
+        processorKbaAddBalance--;
       }
     }
-    //CSM INSIGHTS - check if KBAs attached are referenced in pulse
-    var kbasFound = 0;
-    for(var i=0; i<kbasAttached.length;i++){
-      //check if pulse research of research internal has the KBA ID (removing the 3 leading zeros)
-      if(pulse.research.indexOf(kbasAttached[i].slice(3)) >= 0 || pulse.research_internal.indexOf(kbasAttached[i].slice(3)) >= 0){
-        kbasFound++;
-      }
-    }
-    if(kbasFound != kbasAttached.length){
-      pushCsmInsight("It seems that one or more KBAs attached to the case are not mentioned in the Pulse summary. Please check whether all relevant KBAs are mentioned.","kba");
-    }
-    //CSM INSIGHTS - check if there are any currently attached KBAs by the processor
-    if(processorKbaAddBalance<=0){
-      pushCsmInsight("No KBA seems to have been attached by the current processor of this case. Please check if all relevant KBAs are attached.","kba");
-    }
-    //At the end if balance >0, there is a KBA added
-    var kbaCheckDiv = document.createElement("div");
-  
-    if(!isCompactVersionActive){
-      //Full version
-      kbaCheckDiv.setAttribute("style","text-align: center; color: white;");
-      kbaCheckDiv.innerHTML = "<h3 style=\"margin-bottom:0%;\">KBA</h3>";
-      var kbaIndicatorDiv = document.createElement("h4");
-      if(kbaAddBalace>0){
-        isKbaAttached = true;
-        kbaIndicatorDiv.setAttribute("style","color: PaleGreen; margin-top:0%;");
-        kbaIndicatorDiv.innerHTML = "KBA Attached";
-      }else{
-        isKbaAttached = false;
-        kbaIndicatorDiv.setAttribute("style","color: LightCoral; margin-top:0%;");
-        kbaIndicatorDiv.innerHTML = "KBA Not Detected";
-      }
-      kbaCheckDiv.appendChild(kbaIndicatorDiv);
-      pulseCheckerDiv.appendChild(kbaCheckDiv);
-    }else{
-      //Compact version
-      if(kbaAddBalace > 0){
-        kbaCheckDiv.setAttribute("style","margin-left:10px; line-height:38px; vertical-align:-3px; display:inline-block; background-color: PaleGreen; width:25px; height:25px; border-radius:13px;");
-        kbaCheckDiv.setAttribute("title","KBA Detected");
-        kbaCheckDiv.innerHTML="<h3 style=\"text-align:center; vertical-align:top; color:white;\" title=\"KBA Detected\">K</h3>";
-      }else{
-        kbaCheckDiv.setAttribute("style","margin-left:10px; line-height:38px; vertical-align:-3px; display:inline-block; background-color: LightCoral; width:25px; height:25px; border-radius:13px;");
-        kbaCheckDiv.setAttribute("title","No KBA Detected");
-        kbaCheckDiv.innerHTML="<h3 style=\"text-align:center; vertical-align:top; color:white;\" title=\"No KBA Detected\">K</h3>";
-      }
-      pulseCheckerDiv.appendChild(kbaCheckDiv);
-    }
-  }catch(err){
-    //exception seems to be triggered when there is a corrupt memo coming from SNow. If this is the case, state the error and clear the KBA CSM Insights
-    kbaCsmInsights = [];
-    var kbaCheckDiv = document.createElement("div");
-    if(!isCompactVersionActive){
-      //Full version
-      kbaCheckDiv.setAttribute("style","text-align: center; color: white;");
-      kbaCheckDiv.innerHTML = "<h3 style=\"margin-bottom:0%;\">KBA</h3>";
-      var kbaIndicatorDiv = document.createElement("h4");
+  }
+  //CSM INSIGHTS - check if there are any currently attached KBAs by the processor
+  if(processorKbaAddBalance<=0){
+    pushCsmInsight("No KBA seems to have been attached by the current processor of this case. Please check if all relevant KBAs are attached.")
+  }
+  //At the end if balance >0, there is a KBA added
+  var kbaCheckDiv = document.createElement("div");
+  if(!isCompactVersionActive){
+    //Full version
+    kbaCheckDiv.setAttribute("style","text-align: center; color: white;");
+    kbaCheckDiv.innerHTML = "<h3 style=\"margin-bottom:0%;\">KBA</h3>";
+    var kbaIndicatorDiv = document.createElement("h4");
+    if(kbaAddBalace>0){
       isKbaAttached = true;
-      kbaIndicatorDiv.setAttribute("style","color: Khaki; margin-top:0%;");
-      kbaIndicatorDiv.innerHTML = "Error detecting KBA";
-      
-      kbaCheckDiv.appendChild(kbaIndicatorDiv);
-      pulseCheckerDiv.appendChild(kbaCheckDiv);
+      kbaIndicatorDiv.setAttribute("style","color: PaleGreen; margin-top:0%;");
+      kbaIndicatorDiv.innerHTML = "KBA Attached";
     }else{
-      //Compact version
-      kbaCheckDiv.setAttribute("style","margin-left:10px; line-height:38px; vertical-align:-3px; display:inline-block; background-color: Khaki; width:25px; height:25px; border-radius:13px;");
-      kbaCheckDiv.setAttribute("title","KBA Detected");
-      kbaCheckDiv.innerHTML="<h3 style=\"text-align:center; vertical-align:top; color:white;\" title=\"Error detecting KBA\">K</h3>";
-      
-      pulseCheckerDiv.appendChild(kbaCheckDiv);
+      isKbaAttached = false;
+      kbaIndicatorDiv.setAttribute("style","color: LightCoral; margin-top:0%;");
+      kbaIndicatorDiv.innerHTML = "KBA Not Detected";
     }
+    kbaCheckDiv.appendChild(kbaIndicatorDiv);
+    pulseCheckerDiv.appendChild(kbaCheckDiv);
+  }else{
+    //Compact version
+    if(kbaAddBalace > 0){
+      kbaCheckDiv.setAttribute("style","margin-left:10px; line-height:38px; vertical-align:-3px; display:inline-block; background-color: PaleGreen; width:25px; height:25px; border-radius:13px;");
+      kbaCheckDiv.setAttribute("title","KBA Detected");
+      kbaCheckDiv.innerHTML="<h3 style=\"text-align:center; vertical-align:top; color:white;\" title=\"KBA Detected\">K</h3>";
+    }else{
+      kbaCheckDiv.setAttribute("style","margin-left:10px; line-height:38px; vertical-align:-3px; display:inline-block; background-color: LightCoral; width:25px; height:25px; border-radius:13px;");
+      kbaCheckDiv.setAttribute("title","No KBA Detected");
+      kbaCheckDiv.innerHTML="<h3 style=\"text-align:center; vertical-align:top; color:white;\" title=\"No KBA Detected\">K</h3>";
+    }
+    pulseCheckerDiv.appendChild(kbaCheckDiv);
   }
           
     //Add result KCS status check and CSM Insights
@@ -1101,19 +709,17 @@ ise.case.onUpdate2(
     if(!isCompactVersionActive){
       //Full version
       csmInsightsDiv.setAttribute("style","text-align: center; color: white; margin-top:-1%;");
-      if(pulseCsmInsights.length>0 || kbaCsmInsights.length>0 || otherCsmInsights.length>0 || aiCsmInsights.length>0){
-        //if pulse is showing as not required, the position of the Insights buttons is shifted up. This reajusts the position of the notification circle
-        var insightNotificationTopPositionOffset = (receivedCaseData.headers.data.resolutionError.category == "service_request")?"310px;":"355px;";
-        csmInsightsDiv.innerHTML = "<button style=\"cursor:pointer; align-items: center; padding: 6px 30px; border-radius: 3px; border: none; background: rgb(20, 125, 237); box-shadow: 0px 0.5px 1px rgba(0, 0, 0, 0.1); color: #DFDEDF;\" id=\"insights\"><h3 style=\"margin:0%; padding:0%;\" id=\"insightsText\">🛈 CSM Insights 🛈</h3><div style=\"width:16px; heigth:20px; border-radius:12px; background-color:red; position:absolute; top:"+insightNotificationTopPositionOffset+" left:205px; padding:2px;\">+</div></button>";
+      if(csmInsights.length>0){
+        csmInsightsDiv.innerHTML = "<button style=\"align-items: center; padding: 6px 30px; border-radius: 3px; border: none; background: rgb(20, 125, 237); box-shadow: 0px 0.5px 1px rgba(0, 0, 0, 0.1); color: #DFDEDF;\" id=\"insights\"><h3 style=\"margin:0%; padding:0%;\" id=\"insightsText\">🛈 CSM Insights 🛈</h3></button>";
       }else{
         csmInsightsDiv.innerHTML = "<button style=\"align-items: center; padding: 6px 30px; border-radius: 3px; border: none; background: rgb(178, 179, 182); box-shadow: 0px 0.5px 1px rgba(0, 0, 0, 0.1); color: #DFDEDF;\" id=\"insights\"><h3 style=\"margin:0%; padding:0%;\" id=\"insightsText\">🛈 CSM Insights 🛈</h3></button>";
       } 
     }else{
       //Compact Version
       csmInsightsDiv.setAttribute("style","margin-left:10px; margin-top: -6px; vertical-align:middle; display:inline-block;");
-      csmInsightsDiv.setAttribute("title","CSM Insights");
-      if(pulseCsmInsights.length>0 || kbaCsmInsights.length>0 || otherCsmInsights.length>0 || aiCsmInsights.length>0){
-        csmInsightsDiv.innerHTML = "<button style=\"cursor:pointer; align-items: center; vertical-align:top; margin-top:0px; padding: 6px 10px; border-radius: 20px; border: none; background: rgb(20, 125, 237); box-shadow: 0px 0.5px 1px rgba(0, 0, 0, 0.1); color: #DFDEDF;\" id=\"insights\" title=\"CSM Insights\"><h3 title=\"KCS Insights\" style=\"margin:0%; padding:0%;\" id=\"insightsText\">🛈</h3><div style=\"width:16px; heigth:10px; border-radius:12px; background-color:red; position:absolute; top:4px; left:300px; padding:2px;\">+</div></button>";
+      csmInsightsDiv.setAttribute("title","KCS Insights");
+      if(csmInsights.length>0){
+        csmInsightsDiv.innerHTML = "<button style=\"align-items: center; vertical-align:top; margin-top:0px; padding: 6px 10px; border-radius: 20px; border: none; background: rgb(20, 125, 237); box-shadow: 0px 0.5px 1px rgba(0, 0, 0, 0.1); color: #DFDEDF;\" id=\"insights\" title=\"KCS Insights\"><h3 title=\"KCS Insights\" style=\"margin:0%; padding:0%;\" id=\"insightsText\">🛈</h3></button>";
       }else{
         csmInsightsDiv.innerHTML = "<button style=\"align-items: center; vertical-align:top; margin-top:0px; padding: 6px 10px; border-radius: 20px; border: none; background: rgb(178, 179, 182); box-shadow: 0px 0.5px 1px rgba(0, 0, 0, 0.1); color: #DFDEDF;\" id=\"insights\"><h3 style=\"margin:0%; padding:0%;\" id=\"insightsText\">🛈</h3></button>";
       }
