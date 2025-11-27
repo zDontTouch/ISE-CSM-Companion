@@ -1,9 +1,8 @@
 // ==UserScript==
 // @name     CSM Companion
-// @version  1.7.2
+// @version  1.7.5
 // @grant    none
-// @match    *://itsm.services.sap/*
-// @include  *://itsm.services.sap/*
+// @match    https://itsm.services.sap/now/cwf/*
 // @exclude  *://itsm.services.sap/attach_knowledge*
 // ==/UserScript==
 
@@ -12,6 +11,38 @@
  * https://supportportaltest-ge-approuter.internal.cfapps.sap.hana.ondemand.com/ahui/#/SupportCase
  */
 const forceEnv = null;
+
+//Test Function
+const getAttachedKBAs = (caseId) => {
+  return glideFormFactory.glideRequest
+    .post("/api/now/graphql", {
+      data: {
+        cacheable: false,
+        operationName: "nowRecordListConnectedRelated",
+        query:
+          "query nowRecordListConnectedRelated($columns:String$listId:String$maxColumns:Int$limit:Int$offset:Int$parentRecordSysId:String$parentTable:String$query:String$fixedQuery:String$workspaceConfigId:String$highlightedValueConfigId:String$relatedListName:String$table:String!$view:String$runHighlightedValuesQuery:Boolean!$tiny:String$queryCategory:String$listTitle:String$enableLiveList:Boolean!$actionConfigId:String$source:String$isDeclarativeActionsRequired:Boolean!$menuSelection:String$ignoreTotalRecordCount:Boolean){GlideListLayout_Query{getListLayout(columns:$columns listId:$listId maxColumns:$maxColumns limit:$limit offset:$offset parentRecordSysId:$parentRecordSysId parentTable:$parentTable workspaceConfigId:$workspaceConfigId highlightedValueConfigId:$highlightedValueConfigId query:$query fixedQuery:$fixedQuery relatedListName:$relatedListName table:$table view:$view runHighlightedValuesQuery:$runHighlightedValuesQuery tiny:$tiny queryCategory:$queryCategory listTitle:$listTitle menuSelection:$menuSelection ignoreTotalRecordCount:$ignoreTotalRecordCount){metadata{isDBView isScriptableTable isGrouped groupedColumn groupByDisplayValue dateFormat timeFormat dateTimeFormat canCreateGlobalTags m2MData{isM2M sourceField targetTable targetField}}preferences{name value}tiny query listTitle listId listAttributes menuSelection fixedQuery allColumns{columnName columnData{elementSysId fullLabel internalType isChoice isFilterable isFirstNonRef isGroupable isMultiText isSortable label referenceDisplayName tableName excludedOperators}internalType}queryCategory layoutQuery{...listLayoutQuery}}getListDeclarativeActionsLayout(workspaceConfigId:$workspaceConfigId actionConfigId:$actionConfigId source:$source table:$table view:$view parentRecordSysId:$parentRecordSysId parentTable:$parentTable)@include(if:$isDeclarativeActionsRequired){declarativeActions{...daFields ...on GlideListLayout_DeclarativeActionGroupType{group groupId order groupedActions{...daFields}}}}}GlideDomain_Query{session{notifications{type text notificationType notificationAttributes{attributeName attributeValue}childNotifications{type text notificationType}}}}}fragment rowQuery on GlideListLayout_QueryRowType{className uniqueId displayValue referenceKeyValue rowData{columnName columnData{displayValue value documentIdReference recordClassName referenceKeySysId}}tags{name canEdit sysId viewableBy labelEntry}highlightedData@include(if:$runHighlightedValuesQuery){field value status showIcon iconName variantName colorName}dbViewData{tableKey uniqueId}}fragment listLayoutQuery on GlideListLayout_ListLayoutQueryType{encodedQuery encodedFixedQuery encodedConcatenatedQuery table orderByColumn orderByIsDescending allSysIds count groupCount isChoiceAggregate isOmitCount liveLists@include(if:$enableLiveList)inlineEditingEnabled shouldFetchRecordCount listCountData{hasNextPage}omitCountData{hasNextPage omitCountRowCount}queryRows{...on GlideListLayout_GroupedQueryRowType{displayValue value field aggregateQuery groupChoiceTable count query{...rowQuery}}...on GlideListLayout_QueryRowType{...rowQuery}}}fragment daFields on GlideListLayout_DeclarativeActionModelType{toolTip buttonType recordSelectionRequired confirmationRequired confirmationMessage assignmentId table view name icon label dependency requiresValue order modelFieldRequired groupBy group actionType actionComponent:actionComponentTag actionAttributes actionDispatch actionPayload clientScript modelConditions{field operator value newQuery or}payloadMap{name value}}",
+        variables: {
+          table: "m2m_kb_task",
+          fixedQuery: `task=${caseId}`,
+          parentTable: "sn_customerservice_case",
+          parentRecordSysId: caseId,
+          queryCategory: "related_list",
+          relatedListName: "m2m_kb_task.task",
+          runHighlightedValuesQuery: true,
+          isDeclarativeActionsRequired: true,
+          enableLiveList: false,
+        },
+      },
+    })
+    .then((response) => {
+      return response.data.data.GlideListLayout_Query.getListLayout.layoutQuery.queryRows.map(
+        (row) =>
+          row.rowData.filter(
+            (rd) => rd.columnName === "kb_knowledge.u_correlation_id"
+          )[0].columnData.value
+      );
+    });
+};
 
 // Exposed functions
 API = {
@@ -217,6 +248,17 @@ async function sendAnalytics(action, metadata = undefined) {
     action,
     metadata,
   });
+}
+
+function sendAnalytics(metricName){
+  try {
+    ise.analytics.hana.send({
+      view: "CSMCompanion",
+      action: metricName,
+    });
+  } catch (error) {
+    console.error(`Failed to send analytics for ${metricName}:`, error);
+  }
 }
 
 /**
@@ -1131,6 +1173,11 @@ ise.case.onUpdate2(
     }
 
     document.body.appendChild(pulseCheckerDiv);
+    if(isCompactVersionActive){
+      sendAnalytics("CompactModeLoaded");
+    }else{
+      sendAnalytics("ExtendedModeLoaded");
+    }
     
   }
   
